@@ -1,25 +1,18 @@
 """
 baseline_search.py
 ===================
-Implementa a "abordagem empírica" pedida no enunciado: treina várias
-combinações de arquitetura (número/tamanho de camadas ocultas) e taxa de
-aprendizado, TODAS usando SGD puro (momentum=0, weight_decay=0,
-l1_lambda=0, dropout_rate=0), e escolhe como baseline a combinação com
-MENOR erro (MSE) no conjunto de VALIDAÇÃO.
+Implementa a "abordagem empírica": treina várias combinações de arquitetura (número/tamanho de camadas ocultas) e taxa de aprendizado, 
+TODAS usando SGD puro (momentum=0, weight_decay=0, l1_lambda=0, dropout_rate=0), e escolhe como baseline a combinação com MENOR erro
+(MSE) no conjunto de VALIDAÇÃO.
 
-Cada combinação testada é registrada em
-results/logs/baseline_search_log.csv, documentando todas as análises
-feitas durante o desenvolvimento do baseline (conforme exigido no
-enunciado).
+Cada combinação testada é registrada em results/logs/baseline_search_log.csv, documentando todas as análises feitas durante o 
+desenvolvimento do baseline.
 
 Por que MSE de validação como critério de seleção (e não o de treino)?
 --------------------------------------------------------------------------
-O erro de treino tende a cair conforme a rede fica mais "poderosa" (mais
-neurônios), mesmo que ela esteja apenas decorando os 30 exemplos de
-treino (overfitting). O conjunto de validação, que o modelo nunca vê
-durante o ajuste dos pesos, é o que revela se o modelo está de fato
-generalizando - por isso é o critério correto para escolher a
-arquitetura/hiperparâmetros do baseline.
+O erro de treino tende a cair conforme a rede fica mais "poderosa" (mais neurônios), mesmo que ela esteja apenas decorando os 30 
+exemplos de treino (overfitting). O conjunto de validação, que o modelo nunca vê durante o ajuste dos pesos, é o que revela se o
+modelo está de fato generalizando - por isso é o critério correto para escolher a arquitetura/hiperparâmetros do baseline.
 """
 
 import os
@@ -36,51 +29,52 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
 LOG_PATH = os.path.join(RESULTS_DIR, "logs", "baseline_search_log.csv")
 
 # ----------------------------------------------------------------------
-# ESPAÇO DE BUSCA (empírico): variamos arquitetura e taxa de aprendizado.
-# Mantemos batch_size e número de épocas fixos nesta etapa, para isolar
-# o efeito desses dois fatores (arquitetura x lr).
+# ESPAÇO DE BUSCA (empírico): variamos arquitetura e taxa de aprendizado. Mantemos batch_size e número de épocas fixos nesta etapa, 
+# para isolar o efeito desses dois fatores (arquitetura x lr). Testa 30 redes diferentes
 # ----------------------------------------------------------------------
 ARCHITECTURES = {
-    "1x8":     [1, 8, 1],
-    "1x16":    [1, 16, 1],
-    "1x32":    [1, 32, 1],
-    "1x64":    [1, 64, 1],
-    "2x16-8":  [1, 16, 8, 1],
-    "2x32-16": [1, 32, 16, 1],
+    "1x8":     [1, 8, 1], #1 entrada, 8 neurônios e 1 saída (uma camada oculta)
+    "1x16":    [1, 16, 1], #1 entrada, 16 neurônios e 1 saída (uma camada oculta)
+    "1x32":    [1, 32, 1], #1 entrada, 32 neurônios e 1 saída (uma camada oculta)
+    "1x64":    [1, 64, 1], #1 entrada, 64 neurônios e 1 saída (uma camada oculta)
+    "2x16-8":  [1, 16, 8, 1], #1 entrada, 16 neurônios, 8 neurônios e 1 saída (2 camadas ocultas)
+    "2x32-16": [1, 32, 16, 1], #1 entrada, 32 neurônios, 16 neurônios e 1 saída (2 camadas ocultas)
 }
-LEARNING_RATES = [1.0, 0.5, 0.1, 0.05, 0.01]
+LEARNING_RATES = [1.0, 0.5, 0.1, 0.05, 0.01] #determina o tamanho do passo ao atualizar o peso
 SEARCH_EPOCHS = 500
 BATCH_SIZE = 8
-INIT_SEED = 123   # mesma seed de inicialização de pesos em toda a busca,
-                   # para que a comparação entre arquiteturas/lr não seja
-                   # "poluída" por sorte na inicialização.
+INIT_SEED = 123   # mesma seed de inicialização de pesos em toda a busca, para que a comparação entre arquiteturas/lr não seja
+                  # "poluída" por sorte na inicialização.
 
 
 def run_search():
     raw_path = os.path.join(os.path.dirname(__file__), "..", "data", "dataset_projeto1.csv")
-    splits = create_or_load_fixed_split(raw_path)
-    X_train, y_train, X_val, y_val, X_test, y_test, scaler = standardize_to_tensors(
-        splits["train"], splits["val"], splits["test"])
+    splits = create_or_load_fixed_split(raw_path) #carrega os dados
+
+    #padronização dos dados para PyTorch
+    X_train, y_train, X_val, y_val, X_test, y_test, scaler = standardize_to_tensors(splits["train"], splits["val"], splits["test"])
 
     results = []
     print("=== Busca empírica do baseline (SGD puro, sem regularização) ===\n")
 
-    for arch_name, layer_sizes in ARCHITECTURES.items():
+    for arch_name, layer_sizes in ARCHITECTURES.items(): #testa um LR diferente para cada arquitetura
         for lr in LEARNING_RATES:
-            model = MLP(layer_sizes, dropout_rate=0.0, seed=INIT_SEED)
-            history = train(model, X_train, y_train, X_val, y_val,
-                             lr=lr, epochs=SEARCH_EPOCHS, batch_size=BATCH_SIZE,
-                             momentum=0.0, weight_decay=0.0, l1_lambda=0.0,
-                             seed=RANDOM_SEED, verbose=False)
+            model = MLP(layer_sizes, dropout_rate=0.0, seed=INIT_SEED) #cria a arquitetura usada na iteração
 
+            #treina a arquitetura modelada a partir do trainer.py
+            history = train(model, X_train, y_train, X_val, y_val, lr=lr, epochs=SEARCH_EPOCHS, batch_size=BATCH_SIZE, momentum=0.0, 
+                            weight_decay=0.0, l1_lambda=0.0, seed=RANDOM_SEED, verbose=False)
+
+            #registra os resultados e os melhores erros durante todas as épocas
             final_train_loss = history["train_loss"][-1]
             final_val_loss = history["val_loss"][-1]
             best_val_loss = float(np.min(history["val_loss"]))
             best_val_epoch = int(np.argmin(history["val_loss"])) + 1
-            diverged = not np.isfinite(final_val_loss)
+            diverged = not np.isfinite(final_val_loss) #verifica se a rede divergiu
 
             n_params = model.n_parameters()
 
+            #registra todas as informações de cada rede
             results.append({
                 "arquitetura": arch_name,
                 "layer_sizes": str(layer_sizes),
@@ -95,17 +89,17 @@ def run_search():
                 "divergiu": diverged,
             })
 
-            status = ("DIVERGIU" if diverged else
-                      f"val_final={final_val_loss:.4f} (melhor val={best_val_loss:.4f} @ep{best_val_epoch})")
+            status = ("DIVERGIU" if diverged else f"val_final={final_val_loss:.4f} (melhor val={best_val_loss:.4f} @ep{best_val_epoch})")
             print(f"  arch={arch_name:9s} lr={lr:<5} -> {status}")
 
-    log_df = pd.DataFrame(results).sort_values("loss_val_minima")
+    log_df = pd.DataFrame(results).sort_values("loss_val_minima") #ordenado pelo menor MSE de validação
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     log_df.to_csv(LOG_PATH, index=False)
 
     print(f"\n[baseline_search] Log completo salvo em: {LOG_PATH}")
 
-    valid = log_df[~log_df["divergiu"]]
+    #como o registro está ordenado pelo menor MSE, pega a primeira linha da tabela que será a melhor configuração encontrada
+    valid = log_df[~log_df["divergiu"]] 
     best = valid.iloc[0]
     print("\n=== Melhor configuração encontrada (candidato a baseline) ===")
     print(best.to_string())

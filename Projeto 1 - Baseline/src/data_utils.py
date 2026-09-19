@@ -105,7 +105,7 @@ def standardize_to_tensors(train_df, val_df, test_df, feature_col="x", target_co
     ---------------------------
     y já está numa escala pequena (aprox. -1.5 a 2.7), então não é estritamente necessário, e manter y na escala original 
     torna as métricas (MAE, MSE, RMSE, R²) diretamente interpretáveis.
-    """
+    """ 
     x_mean = train_df[feature_col].mean()   # média do treino para padronização
     x_std = train_df[feature_col].std()     # desvio padrão do treino para padronização
 

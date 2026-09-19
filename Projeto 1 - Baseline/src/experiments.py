@@ -8,19 +8,14 @@ Script principal do projeto. Treina:
   4) baseline + Dropout;
   5) baseline + Momentum;
 
-usando SEMPRE a mesma divisão de dados (fixada por data_utils.py), a
-MESMA arquitetura e os MESMOS pesos iniciais (baseline_config.py) - a
-ÚNICA diferença entre os 5 modelos é o componente adicional estudado.
+usando SEMPRE a mesma divisão de dados (fixada por data_utils.py), a MESMA arquitetura e os MESMOS  pesos iniciais (baseline_config.py) 
+- a ÚNICA diferença entre os 5 modelos é o componente adicional estudado.
 
 Ao final, o script:
-  - gera um gráfico de evolução do treino (loss de treino x validação
-    por época) para CADA modelo;
-  - gera um gráfico comparativo sobrepondo a curva de validação dos 5
-    modelos;
-  - gera um gráfico da função aprendida por cada modelo sobreposta aos
-    dados reais (fácil de visualizar aqui pois x é 1-dimensional);
-  - calcula MAE, MSE, RMSE e R² em treino, validação e teste para cada
-    modelo, e salva uma tabela comparativa final.
+  - gera um gráfico de evolução do treino (loss de treino x validação por época) para CADA modelo;
+  - gera um gráfico comparativo sobrepondo a curva de validação dos 5 modelos;
+  - gera um gráfico da função aprendida por cada modelo sobreposta aos dados reais (fácil de visualizar aqui pois x é 1-dimensional);
+  - calcula MAE, MSE, RMSE e R² em treino, validação e teste para cada modelo, e salva uma tabela comparativa final.
 """
 
 import os
@@ -52,47 +47,33 @@ def moving_average(values, window=SMOOTH_WINDOW):
 
     Por que suavizar?
     -------------------
-    Com apenas 30 amostras de treino, batch_size=8 e 3000 épocas, a perda
-    de VALIDAÇÃO (medida sobre só 30 pontos) varia muito de época para
-    época - não porque o treino esteja "quebrado", mas porque a cada
-    época os pesos mudam um pouco (mini-batch SGD) e o MSE calculado
-    sobre uma amostra pequena é naturalmente ruidoso. Isso dificulta
-    enxergar a TENDÊNCIA real da curva num gráfico com milhares de
-    pontos brutos.
+    Com apenas 30 amostras de treino, batch_size=8 e 3000 épocas, a perda de VALIDAÇÃO (medida sobre só 30 pontos) varia muito de época para
+    época - não porque o treino esteja "quebrado", mas porque a cada época os pesos mudam um pouco (mini-batch SGD) e o MSE calculado sobre 
+    uma amostra pequena é naturalmente ruidoso. Isso dificulta enxergar a TENDÊNCIA real da curva num gráfico com milhares de pontos brutos.
 
-    A suavização NÃO altera nenhum resultado numérico do projeto (as
-    métricas finais em results/tables/ continuam calculadas sobre o
-    melhor checkpoint, sem suavização nenhuma) - serve apenas para
-    tornar os gráficos mais legíveis. Por isso, nos gráficos, sempre
-    desenhamos a curva bruta (fina, translúcida) por trás da curva
-    suavizada (grossa, opaca): quem quiser ver o ruído real, consegue.
+    A suavização NÃO altera nenhum resultado numérico do projeto (as métricas finais em results/tables/ continuam calculadas sobre o melhor 
+    checkpoint, sem suavização nenhuma) - serve apenas para tornar os gráficos mais legíveis. Por isso, nos gráficos, sempre desenhamos a curva
+    bruta (fina, translúcida) por trás da curva suavizada (grossa, opaca): quem quiser ver o ruído real, consegue.
     """
     values = np.asarray(values, dtype=float)
     if len(values) < window:
         return values
     kernel = np.ones(window) / window
-    # 'same' mantém o mesmo tamanho de vetor; nas bordas, o kernel "sai"
-    # do vetor, então corrigimos dividindo pelo número real de vizinhos
-    # usados em cada posição (em vez de sempre assumir `window` vizinhos).
+    # 'same' mantém o mesmo tamanho de vetor; nas bordas, o kernel "sai" do vetor, então corrigimos dividindo pelo número real de vizinhos usados em 
+    # cada posição (em vez de sempre assumir `window` vizinhos).
     smoothed = np.convolve(values, kernel, mode="same")
     weight_used = np.convolve(np.ones_like(values), kernel, mode="same")
     return smoothed / weight_used
 
 
-# ----------------------------------------------------------------------
 # Valores de intensidade escolhidos em ablation_hparam_search.py
-# ----------------------------------------------------------------------
 L1_LAMBDA = 0.0001
 L2_LAMBDA = 0.0001
 DROPOUT_RATE = 0.1
 MOMENTUM = 0.7
 
-# ----------------------------------------------------------------------
-# Definição dos 5 modelos do estudo. Repare que TODOS usam a mesma
-# ARCHITECTURE, o mesmo LEARNING_RATE, os mesmos EPOCHS/BATCH_SIZE e a
-# mesma INIT_SEED (pesos iniciais idênticos) - só o dicionário de
-# hiperparâmetros extras muda.
-# ----------------------------------------------------------------------
+# Definição dos 5 modelos do estudo. Repare que TODOS usam a mesma ARCHITECTURE, o mesmo LEARNING_RATE, os mesmos EPOCHS/BATCH_SIZE e a mesma INIT_SEED
+# (pesos iniciais idênticos) - só o dicionário de hiperparâmetros extras muda.
 EXPERIMENTS = {
     "Baseline":          dict(dropout_rate=0.0, momentum=0.0, weight_decay=0.0, l1_lambda=0.0),
     "Baseline + L1":     dict(dropout_rate=0.0, momentum=0.0, weight_decay=0.0, l1_lambda=L1_LAMBDA),
@@ -102,14 +83,13 @@ EXPERIMENTS = {
 }
 
 
-def run_all_experiments():
+def run_all_experiments(): 
     os.makedirs(PLOTS_DIR, exist_ok=True)
     os.makedirs(TABLES_DIR, exist_ok=True)
 
     raw_path = os.path.join(os.path.dirname(__file__), "..", "data", "dataset_projeto1.csv")
     splits = create_or_load_fixed_split(raw_path)
-    X_train, y_train, X_val, y_val, X_test, y_test, scaler = standardize_to_tensors(
-        splits["train"], splits["val"], splits["test"])
+    X_train, y_train, X_val, y_val, X_test, y_test, scaler = standardize_to_tensors(splits["train"], splits["val"], splits["test"])
 
     all_histories = {}
     all_models = {}
@@ -118,20 +98,17 @@ def run_all_experiments():
     for name, cfg in EXPERIMENTS.items():
         print(f"\n=== Treinando: {name} ===")
         model = MLP(ARCHITECTURE, dropout_rate=cfg["dropout_rate"], seed=INIT_SEED)
-        history = train(model, X_train, y_train, X_val, y_val,
-                         lr=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE,
-                         momentum=cfg["momentum"], weight_decay=cfg["weight_decay"],
-                         l1_lambda=cfg["l1_lambda"], seed=RANDOM_SEED,
+        history = train(model, X_train, y_train, X_val, y_val, lr=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE,
+                         momentum=cfg["momentum"], weight_decay=cfg["weight_decay"], l1_lambda=cfg["l1_lambda"], seed=RANDOM_SEED,
                          verbose=True, log_every=500, restore_best=True)
-
-        print(f"  Melhor época (checkpoint): {history['best_epoch']} "
-              f"| loss val nesse ponto: {history['best_val_loss']:.4f}")
+        #define a melhor época de cada experimento
+        print(f"  Melhor época (checkpoint): {history['best_epoch']} " f"| loss val nesse ponto: {history['best_val_loss']:.4f}")
 
         all_histories[name] = history
         all_models[name] = model
 
         model.eval()
-        with torch.no_grad():
+        with torch.no_grad(): #define previsão para cada um
             y_pred_train = model(X_train)
             y_pred_val = model(X_val)
             y_pred_test = model(X_test)
@@ -142,10 +119,8 @@ def run_all_experiments():
             ("teste", y_test, y_pred_test),
         ]:
             m = all_metrics(y_true, y_pred)
-            metrics_rows.append({
-                "modelo": name, "conjunto": split_name,
-                "MAE": m["MAE"], "MSE": m["MSE"], "RMSE": m["RMSE"], "R2": m["R2"],
-                "melhor_epoca": history["best_epoch"],
+            metrics_rows.append({ 
+                "modelo": name, "conjunto": split_name, "MAE": m["MAE"], "MSE": m["MSE"], "RMSE": m["RMSE"], "R2": m["R2"], "melhor_epoca": history["best_epoch"],
             })
 
     metrics_df = pd.DataFrame(metrics_rows)
@@ -153,9 +128,7 @@ def run_all_experiments():
     metrics_df.to_csv(metrics_path, index=False)
     print(f"\n[experiments] Tabela de métricas salva em: {metrics_path}")
 
-    # ------------------------------------------------------------------
     # Gráficos: evolução do treino (treino x validação), um por modelo
-    # ------------------------------------------------------------------
     for name, history in all_histories.items():
         epochs_range = np.arange(1, len(history["train_loss"]) + 1)
         train_raw = np.array(history["train_loss"])
@@ -164,15 +137,14 @@ def run_all_experiments():
         val_smooth = moving_average(val_raw)
 
         plt.figure(figsize=(7, 4.5))
-        # Curvas brutas: finas e translúcidas, só para mostrar que o
-        # ruído existe (é esperado, dado o tamanho pequeno dos conjuntos).
+        # Curvas brutas: finas e translúcidas, só para mostrar que o ruído existe (é esperado, dado o tamanho pequeno dos conjuntos).
         plt.plot(epochs_range, train_raw, color="tab:blue", alpha=0.15, linewidth=0.7)
         plt.plot(epochs_range, val_raw, color="tab:orange", alpha=0.15, linewidth=0.7)
+
         # Curvas suavizadas (média móvel): o que de fato queremos ler.
         plt.plot(epochs_range, train_smooth, color="tab:blue", linewidth=2, label="Loss (treino)")
         plt.plot(epochs_range, val_smooth, color="tab:orange", linewidth=2, label="Loss (validação)")
-        plt.axvline(history["best_epoch"], color="gray", linestyle="--", alpha=0.6,
-                    label=f"melhor época (val) = {history['best_epoch']}")
+        plt.axvline(history["best_epoch"], color="gray", linestyle="--", alpha=0.6, label=f"melhor época (val) = {history['best_epoch']}")
         plt.xlabel("Época")
         plt.ylabel("MSE")
         plt.title(f"Evolução do treinamento — {name}\n(curva suavizada, média móvel de {SMOOTH_WINDOW} épocas)")
@@ -183,9 +155,7 @@ def run_all_experiments():
         plt.savefig(os.path.join(PLOTS_DIR, fname), dpi=120)
         plt.close()
 
-    # ------------------------------------------------------------------
     # Gráfico comparativo: loss de validação de todos os modelos juntos
-    # ------------------------------------------------------------------
     plt.figure(figsize=(8, 5))
     for name, history in all_histories.items():
         val_raw = np.array(history["val_loss"])
@@ -194,18 +164,14 @@ def run_all_experiments():
         plt.plot(epochs_range, val_smooth, label=name, linewidth=2)
     plt.xlabel("Época")
     plt.ylabel("MSE (validação, suavizado)")
-    plt.title(f"Comparação da evolução do erro de validação entre os modelos\n"
-              f"(curvas suavizadas, média móvel de {SMOOTH_WINDOW} épocas)")
+    plt.title(f"Comparação da evolução do erro de validação entre os modelos\n" f"(curvas suavizadas, média móvel de {SMOOTH_WINDOW} épocas)")
     plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(PLOTS_DIR, "comparacao_curvas_validacao.png"), dpi=120)
     plt.close()
 
-    # ------------------------------------------------------------------
-    # Gráfico: função aprendida por cada modelo, sobreposta aos dados
-    # (possível pois x é 1-dimensional) - usa o dataset completo (train+
-    # val+test) apenas para visualização do ajuste, ordenado por x.
-    # ------------------------------------------------------------------
+    # Gráfico: função aprendida por cada modelo, sobreposta aos dados (possível pois x é 1-dimensional) - usa o dataset completo (train+val+test) 
+    # apenas para visualização do ajuste, ordenado por x.
     x_mean, x_std = scaler["x_mean"], scaler["x_std"]
     x_grid_original = np.linspace(0, 10, 400).reshape(-1, 1)
     x_grid_std = (x_grid_original - x_mean) / x_std
