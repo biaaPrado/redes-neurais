@@ -30,8 +30,8 @@ Projeto 1 - Baseline/
 │   └── run_all.py                    # executa todo o pipeline em sequência
 ├── results/
 │   ├── analises_extras/sensibilidade
-    │   ├── tables/                   # métricas comparativas finais
-    │   └── plots/                    # gráficos gerados                     
+|   │   ├── tables/                   # métricas comparativas finais
+|   │   └── plots/                    # gráficos gerados                     
 │   ├── splits/                       # divisão fixa treino/val/teste
 │   ├── logs/                         # logs das buscas empíricas
 │   ├── tables/                       # métricas comparativas finais
