@@ -29,12 +29,15 @@ Projeto 1 - Baseline/
 │   ├── sensitivity_analysis.py       # análise de sensibilidade (lr, dropout, batch)
 │   └── run_all.py                    # executa todo o pipeline em sequência
 ├── results/
+│   ├── analises_extras/sensibilidade
+    │   ├── tables/                   # métricas comparativas finais
+    │   └── plots/                    # gráficos gerados                     
 │   ├── splits/                       # divisão fixa treino/val/teste
 │   ├── logs/                         # logs das buscas empíricas
 │   ├── tables/                       # métricas comparativas finais
 │   └── plots/                        # gráficos gerados
-├── figuras/                          # figuras usadas no relatório (.tex)
 ├── relatorio.tex                     # relatório em LaTeX
+├── Relatório Projeto                 # relatório em PDF
 ├── requirements.txt
 └── README.md
 ```
