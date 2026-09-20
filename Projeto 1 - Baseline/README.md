@@ -1,365 +1,50 @@
-# Projeto 1 — MLP para Regressão (PyTorch)
-### Disciplina: Introdução a Redes Neurais
+# Projeto 1 — Regressão com MLP e Estudo de Ablação
 
-Este projeto implementa e avalia um Perceptron Multicamadas (MLP) para uma tarefa de regressão, seguindo:
-- Divisão fixa treino/validação/teste (10/10/80)
-- Desenvolvimento empírico de um baseline "vanilla" (SGD puro)
-- Estudos de ablação: avaliando isoladamente L1, L2, Dropout e Momentum sobre o mesmo baseline,
-sem alterar a arquitetura da rede.
+Projeto da disciplina **Introdução às Redes Neurais Artificiais**, implementando um Perceptron Multicamadas (MLP) em **PyTorch** para uma tarefa de regressão, com:
 
-Todo o código usa **Python + PyTorch** (`torch.nn`, `torch.optim.SGD`).
+- Divisão fixa dos dados em treino (10%), validação (10%) e teste (80%)
+- Desenvolvimento empírico de um baseline "vanilla" (SGD puro, sem regularização)
+- Estudo de ablação avaliando isoladamente L1, L2, Dropout e Momentum
+- Análise de sensibilidade a hiperparâmetros (learning rate, dropout, batch size)
+
+**Autora:** Beatriz Prado Soche (RA: 176112)
 
 ---
 
-## 1. Estrutura do projeto
+## Estrutura do repositório
 
 ```
 Projeto 1 - Baseline/
 ├── data/
-│   └── dataset_projeto1.csv         # dataset original fornecido
+│   └── dataset_projeto1.csv         # dataset fornecido
 ├── src/
-│   ├── data_utils.py                # carga do CSV + divisão fixa 10/10/80
-│   ├── model.py                     # definição do MLP (nn.Module)
-│   ├── trainer.py                   # loop de treino (mini-batch SGD)
-│   ├── metrics.py                   # MAE, MSE, RMSE, R²
-│   ├── baseline_config.py           # arquitetura/hiperparâmetros finais do baseline
-│   ├── baseline_search.py           # busca empírica ampla (arquitetura x lr)
-│   ├── ablation_hparam_search.py    # busca da intensidade de cada ablação
-│   ├── experiments.py               # treina os 5 modelos finais e gera resultados
-│   └── run_all.py                   # roda o pipeline completo, na ordem certa
+│   ├── data_utils.py                 # carga do CSV + divisão fixa 10/10/80
+│   ├── model.py                      # definição do MLP (nn.Module)
+│   ├── trainer.py                    # loop de treino (mini-batch SGD)
+│   ├── metrics.py                    # MAE, MSE, RMSE, R²
+│   ├── baseline_config.py            # arquitetura/hiperparâmetros do baseline
+│   ├── baseline_search.py            # busca empírica ampla (arquitetura x lr)
+│   ├── ablation_hparam_search.py     # busca da intensidade de cada ablação
+│   ├── experiments.py                # treina os 5 modelos e gera resultados
+│   ├── sensitivity_analysis.py       # análise de sensibilidade (lr, dropout, batch)
+│   └── run_all.py                    # executa todo o pipeline em sequência
 ├── results/
-│   ├── splits/                      # train.csv, val.csv, test.csv (divisão FIXA)
-│   ├── logs/                        # logs de todas as buscas empíricas realizadas
-│   ├── tables/                      # tabela final comparativa de métricas
-│   └── plots/                       # todos os gráficos gerados
+│   ├── splits/                       # divisão fixa treino/val/teste
+│   ├── logs/                         # logs das buscas empíricas
+│   ├── tables/                       # métricas comparativas finais
+│   └── plots/                        # gráficos gerados
+├── figuras/                          # figuras usadas no relatório (.tex)
+├── relatorio.tex                     # relatório em LaTeX
 ├── requirements.txt
-└── README.md                     
+└── README.md
 ```
 
-### Como executar
-
-```bash
-pip install -r requirements.txt
-cd src
-python run_all.py
-```
-
-Isso (re)executa, em ordem, exatamente os passos descritos abaixo. Como a
-divisão de dados é salva em `results/splits/` na primeira execução, rodar
-o pipeline novamente (mesmo em outra máquina) reproduz a mesma divisão.
-
-> **Nota sobre reprodutibilidade numérica:** todas as sementes aleatórias
-> são fixadas, mas pequenas diferenças de arredondamento em ponto
-> flutuante podem ocorrer entre sistemas operacionais/bibliotecas
-> diferentes (ex.: Windows vs. Linux, versões distintas de PyTorch/BLAS).
-> Isso é normal e não muda as conclusões do estudo — os valores exatos
-> gerados na sua execução ficam salvos em `results/tables/` e
-> `results/logs/`, e são esses que devem ser usados como referência final.
-
 ---
 
-## 2. Dataset
+## Requisitos
 
-O arquivo `dataset_projeto1.csv` contém 300 amostras com duas colunas:
-
-- `x`: variável de entrada, contínua, no intervalo `[0, 10]`.
-- `y`: variável-alvo (regressão), contínua, aproximadamente no intervalo
-  `[-1.5, 2.7]`.
-
-**Análise exploratória realizada:**
-- Sem valores nulos e sem linhas duplicadas.
-- `x` é aproximadamente uniforme entre 0 e 10 (média 5.0).
-- Testamos correlação linear de `y` com `x`, `x²`, `sin(x)`, `sqrt(x)` e
-  `log(x+1)` — todas próximas de zero. Isso indica que a relação entre
-  `x` e `y` **não é simples/monotônica**.
-- Ao plotar o diagrama de dispersão, fica claro que `y` segue um padrão
-  **não-linear e não-monotônico** (oscila para cima e para baixo ao
-  longo de `x`, com ruído considerável sobreposto) — um cenário
-  tipicamente favorável para demonstrar o valor de uma rede MLP (que
-  pode aproximar funções não-lineares arbitrárias) frente a alternativas
-  lineares simples.
-
-Essa não-linearidade motivou a escolha da ativação `tanh` nas camadas
-ocultas (permite capturar curvas complexas).
-
----
-
-## 3. Divisão fixa dos dados (10% treino / 10% validação / 80% teste)
-
-Implementada em `src/data_utils.py`, função `create_or_load_fixed_split`.
-
-**Como garantimos que a divisão é sempre a mesma em todas as comparações:**
-1. Embaralhamos os 300 índices do dataset com uma semente fixa
-   (`RANDOM_SEED = 42`, `numpy.random.default_rng`).
-2. Cortamos os índices embaralhados: os primeiros 10% viram o conjunto de
-   treino (30 amostras), os próximos 10% viram validação (30 amostras) e
-   os 80% restantes viram teste (240 amostras).
-3. Essa divisão é **salva em disco** (`results/splits/train.csv`,
-   `val.csv`, `test.csv`) na primeira execução.
-4. Em qualquer execução futura de qualquer script do projeto, se esses
-   arquivos já existirem, eles são simplesmente **recarregados** — a
-   divisão nunca é gerada de novo. Isso é o que garante, na prática, que
-   o baseline e todas as 4 ablações sejam sempre avaliados exatamente no
-   mesmo conjunto de treino/validação/teste.
-
-A normalização (padronização) da variável `x` é feita usando média e
-desvio-padrão calculados **apenas no conjunto de treino**, e depois
-aplicada a validação e teste — evitando vazamento de informação
-("data leakage") entre os conjuntos.
-
-> **Por que padronizar `x` e não `y`?** A rede usa `tanh` nas camadas
-> ocultas, que satura (gradiente ≈ 0) para entradas com módulo grande.
-> Sem normalizar, `x` (que vai de 0 a 10) saturaria os primeiros
-> neurônios rapidamente, dificultando o treino com SGD puro (sem
-> otimizador adaptativo). `y` já está numa escala pequena e por isso foi
-> mantida na escala original — o que também torna as métricas finais
-> (MAE, MSE, RMSE) diretamente interpretáveis, sem necessidade de
-> desfazer nenhuma transformação.
-
----
-
-## 4. Desenvolvimento do baseline (abordagem empírica)
-
-**Regras impostas ao baseline**:
-- Otimizador: `torch.optim.SGD` **puro** (`momentum=0`, `weight_decay=0`)
-- Sem L1, sem L2, sem dropout.
-- Arquitetura "básica": MLP totalmente conectado, ativação `tanh` nas
-  camadas ocultas, saída linear (regressão).
-
-### 4.1 Busca ampla (arquitetura × taxa de aprendizado)
-
-Script: `src/baseline_search.py` → log completo em
-`results/logs/baseline_search_log.csv`.
-
-Testamos 6 arquiteturas (de 1 e 2 camadas ocultas, 8 a 64 neurônios) × 5
-taxas de aprendizado (0.01 a 1.0), por 500 épocas cada, avaliando sempre
-pelo **MSE de validação** (nunca pelo de treino, que cai artificialmente
-conforme a rede fica maior/decora os dados).
-
-**Principais observações:**
-- Taxas de aprendizado altas (a partir de 0.5) **divergem
-  sistematicamente** com `tanh` + inicialização de Xavier, para todas as
-  arquiteturas testadas — o passo de atualização é simplesmente grande
-  demais.
-- Arquiteturas com **2 camadas ocultas** superaram consistentemente as de
-  1 camada oculta na validação.
-- As melhores combinações ficaram em taxas de aprendizado intermediárias
-  (nem muito altas, nem muito baixas).
-
-### 4.2 Refinamento: análise de convergência
-
-Ao observar que a perda de validação dos melhores candidatos ainda
-estava caindo ao final da busca (500 épocas), não havia convergido de
-fato — estendemos o treino desses candidatos por muito mais épocas para
-entender a velocidade de convergência.
-
-**Achado importante:** o SGD puro (sem momentum) converge **muito
-lentamente** neste problema — mesmo com milhares de épocas a mais, a
-perda de validação ainda melhorava, ainda que de forma cada vez mais
-lenta. Isso é *esperado* teoricamente (SGD puro não acelera em regiões
-de gradiente pequeno/ruidoso) e se tornou um dos pontos centrais de
-discussão do estudo de ablação de Momentum (seção 6).
-
-Comparamos as duas arquiteturas de melhor desempenho na busca ampla
-(uma menor, com 2 camadas ocultas de 16 e 8 neurônios, e uma maior, com
-2 camadas ocultas de 32 e 16 neurônios): o desempenho de validação ficou
-praticamente empatado entre as duas. Por parcimônia (é o que se espera
-de um baseline "básico") e por reduzir o risco de overfitting bruto com
-apenas 30 exemplos de treino, **escolhemos a arquitetura menor**.
-
-### 4.3 Configuração final do baseline
-
-Definida em `src/baseline_config.py`:
-
-| Hiperparâmetro         | Valor            |
-|-------------------------|-------------------|
-| Arquitetura              | `[1, 16, 8, 1]` (2 camadas ocultas: 16 e 8 neurônios) |
-| Ativação (ocultas)       | `tanh`            |
-| Ativação (saída)         | linear (regressão)|
-| Otimizador                | `SGD` puro (`momentum=0`, `weight_decay=0`) |
-| Taxa de aprendizado (lr)  | 0.1               |
-| Épocas                    | 3000              |
-| Tamanho do lote (batch)   | 8                 |
-| Seed de inicialização     | 123 (igual em todos os modelos do estudo) |
-
-**Escolha do ponto de parada (checkpoint):** ao invés de simplesmente
-reportar os pesos da última época (que já mostram sinais de
-overfitting — perda de treino ainda caindo, mas perda de validação
-estagnada/oscilando, visível nos gráficos `curva_*.png`), guardamos,
-durante o treino, os pesos correspondentes à **menor perda de validação**
-observada em qualquer época, e usamos esses pesos para o modelo final.
-Essa prática ("checkpointing"/early stopping) é aplicada **de forma
-idêntica a todos os 5 modelos** do projeto (baseline e as 4 ablações),
-portanto não favorece nenhuma técnica específica — é apenas um critério
-neutro e padrão para decidir "qual versão do modelo" reportar.
-
----
-
-## 5. Estudos de ablação
-
-**Regra central:** todos os modelos de ablação usam **exatamente a
-mesma arquitetura**, os **mesmos pesos iniciais** (mesma seed) e a
-**mesma taxa de aprendizado/número de épocas/tamanho de lote** do
-baseline. A única mudança entre eles é ligar **um único** componente
-extra por vez:
-
-| Modelo                | L1 | L2 | Dropout | Momentum |
-|------------------------|----|----|---------|----------|
-| Baseline                | -  | -  | -       | -        |
-| Baseline + L1            | ✔  | -  | -       | -        |
-| Baseline + L2            | -  | ✔  | -       | -        |
-| Baseline + Dropout       | -  | -  | ✔       | -        |
-| Baseline + Momentum      | -  | -  | -       | ✔        |
-
-Como cada componente foi implementado **sem alterar a arquitetura**
-(ver comentários em `src/model.py` e `src/trainer.py`):
-
-- **L1**: penalidade `l1_lambda * Σ|w|` somada manualmente à função de
-  perda antes do `.backward()` (PyTorch não tem um parâmetro pronto para
-  L1 no otimizador, ao contrário do L2).
-
-- **L2**: passado como `weight_decay` para `torch.optim.SGD` — o PyTorch
-  soma `weight_decay * w` ao gradiente antes do passo de atualização,
-  equivalente a uma penalidade `(λ/2)·‖w‖²` na perda.
-
-- **Dropout**: a classe `MLP` sempre tem uma camada `nn.Dropout(p)` após
-  cada ativação oculta; com `p=0`, ela é matematicamente a função
-  identidade (não afeta o baseline). Só na ablação de dropout `p>0`.
-
-- **Momentum**: passado como parâmetro `momentum` do
-  `torch.optim.SGD` — com `momentum=0` (baseline) o otimizador se
-  comporta como SGD puro.
-
-### 5.1 Escolha da intensidade de cada técnica
-
-Antes de comparar "baseline vs. baseline+técnica", era preciso escolher
-**um valor razoável** para cada intensidade (λ do L1, λ do L2, taxa do
-dropout, coeficiente do momentum) — escolher esses valores "no chute"
-seria injusto com a técnica. Fizemos uma pequena busca empírica
-(`src/ablation_hparam_search.py`, log em
-`results/logs/ablation_hparam_search_log.csv`), testando 5 valores por
-técnica e escolhendo o de menor MSE de validação:
-
-| Técnica   | Valores testados                     | Melhor valor encontrado |
-|-----------|----------------------------------------|--------------------------|
-| L1        | 0.0001, 0.0005, 0.001, 0.005, 0.01     | **0.0001**               |
-| L2        | 0.0001, 0.0005, 0.001, 0.005, 0.01     | **0.0001**               |
-| Dropout   | 0.1, 0.2, 0.3, 0.4, 0.5                 | **0.1**                  |
-| Momentum  | 0.5, 0.7, 0.9, 0.95, 0.99                | **0.7**                  |
-
-**Observações desta busca, já bastante reveladoras:**
-- Para **L1 e L2**, valores de penalidade mais altos que o menor testado
-  **pioram** progressivamente o desempenho de validação. Com apenas 30
-  exemplos de treino e uma rede pequena, o modelo já não tem tanta
-  capacidade "sobrando" para regularizar agressivamente — o ponto ótimo
-  de regularização é bem sutil.
-- Para **dropout**, o mesmo padrão, ainda mais acentuado: mesmo o valor
-  mais leve testado já piora o MSE de validação em relação ao baseline.
-  Isso faz sentido: a rede já é pequena (16 e 8 neurônios), então
-  "apagar" neurônios aleatoriamente durante o treino reduz demais a
-  capacidade efetiva do modelo, prejudicando o aprendizado ao invés de
-  ajudar a generalizar.
-- Para **momentum**, o efeito é bem diferente dos anteriores: não é uma
-  regularização, e sim uma aceleração da otimização. Como vimos que o
-  SGD puro converge lentamente (seção 4.2), momentum moderado permite
-  que a rede atinja uma perda de validação menor **dentro do mesmo
-  orçamento de épocas** — não por "regularizar", mas por otimizar melhor
-  a mesma função de perda. Valores muito altos, porém, pioram o
-  resultado (oscilação/instabilidade), como esperado.
-
-Esses valores foram os usados no estudo de ablação final
-(`src/experiments.py`).
-
----
-
-## 6. Comparação dos resultados
-
-Script: `src/experiments.py`. Tabela completa em
-`results/tables/metricas_comparativas.csv`; gráficos em
-`results/plots/`. Todas as métricas são calculadas com o modelo no seu
-**melhor checkpoint de validação**, nos três conjuntos (treino,
-validação e teste), usando as 4 métricas definidas em `src/metrics.py`
-(MAE, MSE, RMSE, R²).
-
-Os valores numéricos exatos variam ligeiramente a cada execução/máquina
-(ver nota na seção 1), então não os fixamos aqui — consulte
-`results/tables/metricas_comparativas.csv` para os números da sua
-própria execução. Em termos qualitativos, os padrões observados foram:
-
-- **Momentum** foi consistentemente a técnica com melhor desempenho de
-  validação entre as ablações, e a que convergiu mais rápido — coerente
-  com o achado da seção 4.2 de que o SGD puro converge lentamente neste
-  problema; momentum simplesmente permite explorar melhor a superfície
-  de perda dentro do mesmo orçamento de épocas.
-
-- **L1 e L2**, nas intensidades ótimas encontradas, tiveram desempenho
-  muito próximo do baseline — praticamente não mudaram o comportamento
-  do modelo. Isso é coerente com a análise da seção 5.1: a rede já é
-  pequena e o conjunto de treino já é escasso, então não há muito
-  "excesso de capacidade" para essas penalidades cortarem.
-
-- **Dropout** piorou claramente o desempenho em todos os conjuntos. Ao
-  observar `funcoes_aprendidas.png`, é possível ver que o modelo com
-  dropout aprendeu uma curva mais "achatada", perdendo parte das
-  oscilações do padrão real — sinal de que o dropout, nesta rede pequena
-  com poucos dados, reduziu a capacidade efetiva da rede a ponto de
-  prejudicar o ajuste, em vez de apenas combater overfitting.
-
-- Em todos os modelos, o **erro de treino é sistematicamente menor que o de validação/teste** — sinal claro de overfitting, 
-  esperado dado que
-  há apenas 30 exemplos de treino para uma função não-linear com
-  múltiplas oscilações. Isso também explica por que as curvas de
-  validação em `comparacao_curvas_validacao.png` são relativamente
-  ruidosas: o MSE de validação é calculado sobre apenas 30 pontos, então
-  tem variância alta de época para época (por isso os gráficos usam uma
-  suavização por média móvel, só para fins de visualização — os números
-  finais na tabela não são suavizados).
-
-- Um ponto de honestidade estatística importante: a ordem de desempenho
-  observada no conjunto de **validação** nem sempre se repete
-  exatamente no conjunto de **teste**. Isso acontece porque o conjunto
-  de validação, sendo muito pequeno (apenas 10% dos dados, 30 pontos),
-  tem alta variância — a "melhor época" e o "melhor hiperparâmetro"
-  escolhidos por ele nem sempre generalizam perfeitamente para uma
-  amostra de teste 8× maior. Esse é um efeito colateral esperado de se
-  usar frações de treino/validação tão pequenas (10%/10%), como pedido
-  no enunciado, e reforça a importância de reportar métricas no
-  conjunto de teste (não só na validação) antes de tirar conclusões
-  definitivas sobre qual técnica é "melhor".
-
-### Gráficos gerados (pasta `results/plots/`)
-
-- `curva_baseline.png`, `curva_baseline_l1.png`, `curva_baseline_l2.png`,
-  `curva_baseline_dropout.png`, `curva_baseline_momentum.png` — evolução
-  de treino x validação (MSE por época) de cada modelo individualmente.
-- `comparacao_curvas_validacao.png` — as 5 curvas de validação
-  sobrepostas, para comparar diretamente a velocidade/qualidade de
-  convergência.
-- `funcoes_aprendidas.png` — a função aprendida por cada modelo (linha),
-  sobreposta aos dados reais (pontos), possível pois `x` é
-  1-dimensional.
-
----
-
-## 7. Limitações e possíveis extensões
-
-- O conjunto de treino de apenas 30 amostras é pequeno para a
-  complexidade da função-alvo (múltiplas oscilações não-lineares),
-  limitando o quanto qualquer técnica de regularização pode ajudar sem
-  mais dados.
-- Não foi feita busca de intensidade combinando duas técnicas ao mesmo
-  tempo (ex.: L2 + Momentum), pois o enunciado pede avaliação isolada de
-  cada componente sobre o baseline.
-- Uma extensão natural seria repetir todo o estudo com múltiplas
-  sementes de inicialização e reportar médias ± desvio-padrão das
-  métricas, para quantificar a variância introduzida pela inicialização
-  aleatória dos pesos — o que não foi feito aqui para manter o escopo
-  dentro do que foi pedido (comparação com pesos iniciais idênticos
-  entre os modelos).
-
----
-
-## 8. Requisitos
+- Python 3.10+
+- Dependências listadas em `requirements.txt`:
 
 ```
 torch
@@ -368,4 +53,39 @@ pandas
 matplotlib
 ```
 
-(ver `requirements.txt`)
+## Instalação
+
+```bash
+git clone https://github.com/biaaPrado/redes-neurais.git
+cd "redes-neurais/Projeto 1 - Baseline"
+pip install -r requirements.txt
+```
+
+## Como executar
+
+Rodar o pipeline completo (divisão dos dados, busca de hiperparâmetros, treino dos 5 modelos e geração de gráficos/tabelas):
+
+```bash
+cd src
+python run_all.py
+```
+
+Também é possível rodar cada etapa separadamente:
+
+```bash
+python data_utils.py               # gera a divisão fixa dos dados
+python baseline_search.py          # busca empírica de arquitetura/lr
+python ablation_hparam_search.py   # busca de intensidade das ablações
+python experiments.py              # treina baseline + 4 ablações
+python sensitivity_analysis.py     # análise de sensibilidade a hiperparâmetros
+```
+
+Os resultados (tabelas, logs e gráficos) são salvos automaticamente em `results/`.
+
+## Relatório
+
+O relatório completo do projeto (metodologia, resultados e discussão) está em [`relatorio.tex`](./relatorio.tex) / `relatorio.pdf`.
+
+## Reprodutibilidade
+
+Todas as etapas usam sementes aleatórias fixas (divisão dos dados e inicialização dos pesos), e a divisão treino/validação/teste é persistida em `results/splits/` na primeira execução, garantindo que todos os modelos sejam comparados sobre exatamente os mesmos dados.

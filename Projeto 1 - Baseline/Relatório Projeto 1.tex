@@ -1,0 +1,220 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{tabularx}
+\usepackage{placeins}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black
+}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.2ex plus 0.5ex minus .2ex}{0.6ex}
+\titlespacing*{\subsection}{0pt}{1.0ex plus 0.4ex minus .2ex}{0.4ex}
+
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Projeto 1: Regressão com MLP e Estudo de Ablação}} \\[0.35em]
+    {\large Disciplina: Introdução às Redes Neurais Artificiais} \\[0.3em]
+    \textbf{Autor:} {Beatriz Prado Soche (RA: 176112)} \\[0.2em]
+    \textbf{Repositório / Código Reprodutível:} \url{https://github.com/biaaPrado/redes-neurais/tree/main/Projeto%201%20-%20Baseline}
+\end{center}
+\vspace{-0.5em}
+\hrule
+\vspace{0.8em}
+
+\section{Configuração Experimental e Reprodutibilidade}
+
+\subsection{Pré-processamento e Partição dos Dados}
+O dataset fornecido contém 300 amostras com uma única variável de entrada $x \in [0, 10]$ e uma variável-alvo $y$ (regressão), sem valores nulos ou duplicados. A análise exploratória (correlação com $x$, $x^2$, $\sin(x)$, $\sqrt{x}$ e $\log(x+1)$, todas próximas de zero) indicou uma relação claramente \textbf{não-linear e não-monotônica} entre $x$ e $y$, o que motivou o uso de uma rede MLP com ativação $\tanh$ nas camadas ocultas, capaz de aproximar funções não-lineares complexas.
+
+A partição dos dados seguiu estritamente a proporção de \textbf{10\% para treino} (30 amostras), \textbf{10\% para validação} (30 amostras) e \textbf{80\% para teste} (240 amostras). Essa restrição intencional no volume de treino torna a tarefa suscetível ao sobreajuste, tornando a investigação de hiperparâmetros e técnicas de regularização crítica.
+
+Para garantir que \textbf{todas} as comparações (baseline e as quatro variações de ablação) fossem avaliadas exatamente na mesma divisão dos dados, os índices foram embaralhados com uma semente fixa ($\text{seed}=42$) e a partição resultante foi persistida em disco na primeira execução; execuções subsequentes apenas recarregam essa mesma divisão, eliminando qualquer variabilidade decorrente de um novo sorteio aleatório.
+
+A variável de entrada $x$ foi padronizada (média 0, desvio-padrão 1) para evitar saturação da ativação $\tanh$ nas primeiras camadas — essencial dado o uso de SGD puro, sem otimizador adaptativo que compensasse entradas em escalas muito distintas. O cálculo de média/desvio (\textit{fit}) ocorreu exclusivamente sobre os 10\% de treino, aplicando-se apenas o \textit{transform} às partições de validação e teste, mitigando vazamento de dados (\textit{data leakage}). A variável-alvo $y$ não foi reescalada, por já se encontrar em uma faixa numérica pequena ($\approx$ -1,5 a 2,7), o que também torna as métricas finais diretamente interpretáveis na escala original.
+
+\subsection{Definição e Otimização Empírica do Modelo Baseline (Vanilla)}
+O modelo \textit{baseline} é uma rede MLP básica treinada estritamente com \textbf{SGD padrão} (sem aceleradores adaptativos como Adam e sem termo de \textit{momentum}, isto é, $\text{momentum}=0$ e $\text{weight\_decay}=0$ no otimizador). Nenhuma regularização explícita (L1, L2, Dropout) foi aplicada nesta fase.
+
+A busca empírica pela melhor configuração envolveu duas etapas. Primeiro, uma busca ampla variou sistematicamente o número de camadas ocultas (1 e 2), o número de neurônios (8, 16, 32 e 64, além de combinações de 2 camadas) e a taxa de aprendizado inicial ($\eta \in \{0.01, 0.05, 0.1, 0.5, 1.0\}$), por 500 épocas cada, avaliando-se o desempenho estritamente pelo menor erro (MSE) na validação. Observou-se que $\eta \geq 0.5$ diverge sistematicamente com ativação $\tanh$ e inicialização de Xavier, e que arquiteturas com 2 camadas ocultas superaram consistentemente as de 1 camada. Em uma segunda etapa, os candidatos mais promissores foram treinados por um número de épocas muito maior, revelando que o SGD puro converge \textbf{lentamente} neste problema (a perda de validação ainda melhorava mesmo após milhares de épocas adicionais) — achado que se tornaria central na discussão do componente de Momentum (Seção 3). A Tabela~\ref{tab:baseline_hiper} detalha o espaço de busca e a configuração final selecionada.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Espaço amostrado e configuração final da MLP Baseline (Vanilla).}
+\label{tab:baseline_hiper}
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Hiperparâmetro} & \textbf{Valores Explorados} & \textbf{Configuração Escolhida (Vanilla)} \\
+\midrule
+Topologia das Camadas & 1 e 2 camadas ocultas; \{8, 16, 32, 64\} neurônios & Entrada(1) $\rightarrow$ Densa(16) $\rightarrow$ Densa(8) $\rightarrow$ Saída(1) \\
+Função de Ativação    & $\tanh$ & $\tanh$ nas ocultas; saída linear (regressão) \\
+Otimizador            & SGD Padrão & SGD ($\eta = 0.1$) \\
+Tamanho do Lote       & Fixado em 8 durante a busca de arquitetura/lr (ver Seção~4) & 8 \\
+Função de Custo       & Erro Quadrático Médio (MSE) & MSELoss \\
+Critério de Parada    & Sem \textit{early stopping} por paciência: treino completo por 3000 épocas, com \textit{checkpoint} no ponto de menor erro de validação & Modelo restaurado à época de menor MSE de validação \\
+Sementes Aleatórias   & Seed fixa para a divisão dos dados; seed fixa e idêntica em todos os modelos para a inicialização dos pesos & seed divisão $=42$; seed inicialização $=123$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A opção pelo \textit{checkpoint} do melhor ponto de validação (em vez de um critério de paciência) foi aplicada de forma \textbf{idêntica a todos os modelos} do estudo (baseline e as quatro ablações), portanto não favorece nenhuma técnica em particular — é apenas um critério neutro para reportar "qual versão" de cada modelo treinado.
+
+\section{Dinâmica de Treinamento e Convergência (Baseline vs. Modificados)}
+
+A evolução das curvas de função de perda (MSE) ao longo das épocas foi monitorada para verificar a estabilidade do SGD e comparar a dinâmica do \textit{baseline} com os modelos contendo componentes adicionais (Figuras~\ref{fig:loss_all} e~\ref{fig:loss_ablation}). Como as curvas de validação apresentam ruído considerável (calculadas sobre apenas 30 amostras), aplicou-se uma suavização por média móvel (janela de 51 épocas) apenas para fins de visualização, sem alterar nenhum valor reportado nas tabelas de métricas.
+
+\textbf{Análise Crítica da Dinâmica de Convergência:}
+\begin{itemize}
+    \item \textbf{Estabilidade do SGD:} sem termos adaptativos ou de momentum, a taxa de aprendizado precisou ficar numa faixa relativamente estreita: valores a partir de $\eta = 0.5$ causaram divergência franca do treino (perda explodindo), enquanto $\eta = 0.1$ produziu uma convergência estável, ainda que lenta e com oscilações visíveis época a época — esperado, já que cada mini-lote (tamanho 8, de apenas 30 amostras de treino) introduz ruído na estimativa do gradiente.
+    \item \textbf{Sobreajuste (\textit{Overfitting}):} no baseline, o erro de treino e o de validação já se descolam nas primeiras centenas de épocas, e a diferença se acentua ao longo do treino — ao final das 3000 épocas, o erro de treino continua caindo enquanto o de validação estagna/oscila em um patamar mais alto (Figura~\ref{fig:loss_all}, painel Baseline), sinal característico de sobreajuste, coerente com o volume reduzido de dados de treino (30 amostras) frente à complexidade não-linear do problema. O mesmo padrão (treino caindo, validação estagnada) se repete nos demais painéis da Figura~\ref{fig:loss_all}, com intensidade variável entre os modelos.
+    \item \textbf{Aceleração com Momentum:} sim — o modelo com momentum atingiu seu melhor ponto de validação por volta da época 2050, contra 2628 do baseline puro (Figura~\ref{fig:loss_all}), além de alcançar um patamar de erro de validação mais baixo dentro do mesmo orçamento de 3000 épocas (Figura~\ref{fig:loss_ablation}). Esse resultado é coerente com a lentidão de convergência do SGD puro identificada na busca empírica (Seção~1.2): o momentum não atua como regularizador, mas acelera a otimização da mesma função de perda.
+\end{itemize}
+
+\FloatBarrier
+
+\section{Estudo de Ablação e Desempenho no Conjunto de Teste}
+
+Para isolar rigorosamente o efeito de cada componente, a arquitetura base (camadas, ativações, número de épocas, tamanho de lote e seed de inicialização) foi mantida idêntica à da Tabela~\ref{tab:baseline_hiper} em todas as variações a seguir — a única mudança em cada uma é a ativação de um único componente adicional:
+\begin{enumerate}
+    \item \textbf{Baseline + Momentum:} SGD com fator de momentum $\beta = 0.7$.
+    \item \textbf{Baseline + Regularização L2 (\textit{Weight Decay}):} penalização quadrática dos pesos, $\lambda_{L2} = 10^{-4}$, implementada via o parâmetro \texttt{weight\_decay} do otimizador.
+    \item \textbf{Baseline + Regularização L1 (Lasso):} penalização por norma $L_1$, $\lambda_{L1} = 10^{-4}$, somada manualmente à função de perda antes do \textit{backward pass} (o PyTorch não oferece suporte nativo a L1 no otimizador, ao contrário do L2).
+    \item \textbf{Baseline + Dropout:} desativação aleatória de neurônios nas camadas ocultas com $p = 0.1$.
+\end{enumerate}
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\linewidth]{figuras/curvas_treinamento_todos_modelos.png}
+\caption{Evolução do treino (treino x validação) para os 5 modelos do estudo. A linha tracejada vertical marca a época do \textit{checkpoint} (menor erro de validação).}
+\label{fig:loss_all}
+\end{figure}
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.7\linewidth]{figuras/comparacao_curvas_validacao.png}
+\caption{Comparação de convergência na validação — Baseline vs. L1, L2, Dropout e Momentum.}
+\label{fig:loss_ablation}
+\end{figure}
+\FloatBarrier
+
+Os quatro valores de intensidade acima ($\beta$, $\lambda_{L1}$, $\lambda_{L2}$, $p$) foram, eles próprios, escolhidos por meio de uma busca empírica independente (testando 5 valores para cada técnica e selecionando o de menor MSE de validação), de modo a comparar o baseline com a \textit{melhor versão razoável} de cada técnica, e não com um valor arbitrário. Não foi avaliado um modelo combinando múltiplos componentes simultaneamente, pois o escopo do estudo de ablação é isolar o efeito de \textbf{um único} componente por vez frente ao baseline; a combinação de técnicas é discutida como extensão futura na Seção~5.
+
+A avaliação final foi realizada sobre os 80\% de dados de teste, não utilizados no treino nem na escolha de hiperparâmetros. Os resultados comparativos estão organizados na Tabela~\ref{tab:ablation_metrics}.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Resultados do Estudo de Ablação no Conjunto de Teste (80\% dos dados).}
+\label{tab:ablation_metrics}
+\begin{tabularx}{\textwidth}{lccccc}
+\toprule
+\textbf{Modelo / Variação} & \textbf{MSE} & \textbf{RMSE} & \textbf{MAE} & \textbf{$R^2$} & \textbf{Época do checkpoint} \\
+\midrule
+Baseline Vanilla (SGD sem momentum)         & 0,382 & 0,618 & 0,489 & 0,260 & 2628 \\
+Baseline + Regularização L2 ($\lambda=10^{-4}$) & 0,397 & 0,630 & 0,497 & 0,231 & 2441 \\
+Baseline + Regularização L1 ($\lambda=10^{-4}$) & 0,412 & 0,642 & 0,506 & 0,201 & 2730 \\
+Baseline + Momentum ($\beta = 0.7$)           & 0,417 & 0,646 & 0,501 & 0,191 & 2050 \\
+Baseline + Dropout ($p = 0.1$)                & 0,509 & 0,713 & 0,574 & 0,013 & 2811 \\
+\bottomrule
+\end{tabularx}
+
+\vspace{0.3em}
+\footnotesize\textcolor{blue!70!black}{Valores gerados a partir de \texttt{results/tables/metricas\_comparativas.csv}. Pequenas variações de arredondamento (na 3ª/4ª casa decimal) podem ocorrer entre execuções em máquinas/SOs diferentes, mesmo com sementes fixas.}
+\end{table}
+
+Vale destacar que a ordem de desempenho no conjunto de \textbf{validação} (usada para selecionar hiperparâmetros e o ponto de \textit{checkpoint}) não coincide exatamente com a ordem observada no \textbf{teste}: na validação, o Momentum apresentou o menor erro; no teste, é o Baseline puro que apresenta o melhor $R^2$. Essa discrepância é discutida na Seção~5.
+
+A Figura~\ref{fig:funcoes} permite uma leitura qualitativa complementar à Tabela~\ref{tab:ablation_metrics}: Baseline, L1 e L2 aprendem curvas praticamente indistinguíveis entre si; o Dropout produz uma curva visivelmente mais "achatada", perdendo parte das oscilações do padrão real; e o Momentum captura as oscilações com maior amplitude, ainda que isso não se traduza necessariamente em melhor generalização no teste (Tabela~\ref{tab:ablation_metrics}).
+
+\begin{figure}[!htbp]
+\centering
+\begin{minipage}{0.45\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figuras/parity_plot.png}
+    \caption{Dispersão real vs. predito no teste ($y=x$) — Baseline vs. Baseline+Momentum.}
+    \label{fig:parity}
+\end{minipage}
+\hfill
+\begin{minipage}{0.45\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figuras/residuos_melhor_modelo.png}
+    \caption{Resíduos ($\hat y - y$) do modelo Baseline+Momentum no conjunto de teste.}
+    \label{fig:residuals}
+\end{minipage}
+\end{figure}
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figuras/funcoes_aprendidas.png}
+\caption{Função aprendida por cada modelo (linha vermelha) sobreposta aos dados reais (pontos), no domínio completo de $x$.}
+\label{fig:funcoes}
+\end{figure}
+\FloatBarrier
+
+\section{Análise de Sensibilidade a Hiperparâmetros}
+
+Além do estudo de ablação (Seção~3), avaliou-se a sensibilidade do modelo \textit{baseline} a três hiperparâmetros de treino — taxa de aprendizado, taxa de \textit{dropout} e tamanho de lote — variando cada um isoladamente a partir de um ponto de referência já estabelecido no projeto (arquitetura, época e demais hiperparâmetros mantidos fixos). Diferentemente da busca empírica da Seção~1.2 (cujo objetivo era \textit{encontrar} o melhor valor), esta análise tem caráter didático: mostrar o que ocorre ao nos afastarmos do valor já escolhido.
+
+Para os testes de taxa de aprendizado e tamanho de lote, a referência utilizada foi o próprio \textbf{Baseline oficial} ($\eta=0.1$, \textit{dropout}$=0$, lote$=8$). Para os testes de \textit{dropout}, a referência foi a própria ablação \textbf{Baseline + Dropout} oficial ($\eta=0.1$, lote$=8$, \textit{dropout}$=0.1$) — evitando ancorar as comparações em um modelo "híbrido" que nunca fez parte do estudo principal.
+
+\textbf{Taxa de aprendizado (Figura~\ref{fig:sens_lr}):} $\eta=0.01$ resultou em convergência muito mais lenta, não atingindo, mesmo ao final das 3000 épocas, o patamar de erro alcançado pela referência — evidenciando que uma taxa de aprendizado baixa demais pode ser tão prejudicial, dentro de um orçamento fixo de épocas, quanto uma taxa alta demais que diverge. Já $\eta=0.3$ apresentou trajetória mais ruidosa que a referência, mas convergiu para um patamar final semelhante, indicando alguma margem de tolerância acima de $\eta=0.1$ antes da instabilidade observada na busca ampla (Seção~1.2, $\eta \geq 0.5$).
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.7\linewidth]{figuras/sensibilidade_lr.png}
+\caption{Sensibilidade à taxa de aprendizado ($\eta = 0.01$, $0.1$ e $0.3$), com \textit{dropout}$=0$ e lote$=8$ fixos.}
+\label{fig:sens_lr}
+\end{figure}
+\FloatBarrier
+
+\textbf{Taxa de \textit{dropout} (Figura~\ref{fig:sens_dropout}):} de forma notável, $p=0.05$ (mais leve que o valor oficialmente escolhido) obteve erro de validação \textit{menor} que a própria referência ($p=0.1$) ao longo de praticamente todo o treino, enquanto $p=0.3$ piorou substancialmente o resultado. Esse gradiente reforça a conclusão da Seção~3 de que o \textit{dropout} prejudica esta rede pequena \textbf{proporcionalmente à sua intensidade} — mesmo o valor "ótimo" encontrado na busca de ablação ($p=0.1$) já não é a escolha ideal quando comparado a valores ainda mais leves, sugerindo que, para esta arquitetura e este volume de dados, quanto menor a taxa de \textit{dropout}, melhor (o caso limite sendo não usar \textit{dropout} algum, isto é, o próprio Baseline).
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.7\linewidth]{figuras/sensibilidade_dropout.png}
+\caption{Sensibilidade à taxa de \textit{dropout} ($p = 0.05$, $0.1$ e $0.3$), com $\eta=0.1$ e lote$=8$ fixos.}
+\label{fig:sens_dropout}
+\end{figure}
+\FloatBarrier
+
+\textbf{Tamanho de lote (Figura~\ref{fig:sens_batch}):} lote$=1$ produziu uma curva visivelmente mais ruidosa que a referência (lote$=8$), como esperado dado o gradiente estimado a partir de uma única amostra por atualização, mas convergiu para um patamar final semelhante. Lote$=30$ (lote completo, já que o treino tem exatamente 30 amostras) apresentou a convergência mais lenta dentre os três — no início do treino permanece com erro visivelmente mais alto que os demais, embora se aproxime da referência ao final das 3000 épocas — confirmando o trade-off esperado entre suavidade do gradiente (menos ruído por atualização) e velocidade de convergência (menos atualizações por época).
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.7\linewidth]{figuras/sensibilidade_batch.png}
+\caption{Sensibilidade ao tamanho de lote (1, 8 e 30), com $\eta=0.1$ e \textit{dropout}$=0$ fixos.}
+\label{fig:sens_batch}
+\end{figure}
+\FloatBarrier
+
+\section{Discussão e Lições Aprendidas}
+
+\begin{itemize}
+    \item \textbf{Impacto do SGD Vanilla no Regime de Poucos Dados (10\% de Treino):} com apenas 30 amostras de treino para uma função não-linear com múltiplas oscilações, o baseline já apresenta sinais claros de sobreajuste (erro de treino $R^2 \approx 0.59$ contra $R^2 \approx 0.26$ no teste). Entre as técnicas de regularização avaliadas (L1, L2, Dropout), \textbf{nenhuma reduziu essa variância de forma expressiva} nas intensidades ótimas encontradas — L1 e L2 tiveram desempenho de teste praticamente equivalente (ligeiramente pior, na verdade) ao do baseline, e o Dropout piorou claramente o resultado em todos os conjuntos. Uma hipótese para esse comportamento é que a rede já é pequena (177 parâmetros) e o conjunto de treino já é escasso, restando pouca "capacidade excedente" para essas penalidades cortarem sem prejudicar o ajuste.
+    \item \textbf{Ação Específica dos Hiperparâmetros de Ablação:}
+    \begin{itemize}
+        \item O \textit{momentum} alterou visivelmente a velocidade da curva de validação (melhor época $\approx 2050$, contra $2628$ do baseline), sem necessariamente suavizá-la — ambas as curvas permanecem ruidosas, dado o tamanho reduzido do conjunto de validação (30 amostras).
+        \item Houve diferença observável, mas sutil, entre L1 e L2: ambos obtiveram desempenho de teste muito próximo (L2 ligeiramente melhor que L1), e ambos ficaram muito próximos do baseline nas intensidades ótimas — indicando que, neste regime de poucos dados, a diferença conceitual entre esparsidade (L1) e atenuação suave dos pesos (L2) teve efeito prático limitado sobre o erro final.
+        \item O \textit{Dropout}, mesmo na intensidade mais leve avaliada na busca ($p=0.1$), já piorou o erro de treino e de teste em relação ao baseline — indicando que, para esta arquitetura pequena, o dropout reduz a capacidade efetiva da rede a ponto de prejudicar o ajuste, em vez de apenas conter o sobreajuste.
+        \item Os resultados da Análise de Sensibilidade (Seção~4) mostram que o modelo é mais sensível ao \textit{dropout} do que ao \textit{learning rate} ou ao \textit{batch size} dentro das faixas testadas: pequenas variações na taxa de \textit{dropout} (mesmo abaixo do valor "ótimo" de $0.1$) já produzem mudanças visíveis no erro de validação, enquanto $\eta$ e o tamanho de lote toleram variações maiores sem uma degradação tão acentuada dentro do orçamento de 3000 épocas.
+    \end{itemize}
+    \item \textbf{Análise de Resíduos e Limitações:} o gráfico de dispersão real vs. predito (Figura~\ref{fig:parity}) mostra que ambos os modelos capturam a tendência geral, mas com dispersão considerável em torno da diagonal — coerente com o $R^2$ moderado obtido. Os resíduos (Figura~\ref{fig:residuals}) não mostram um viés sistemático evidente (distribuição aproximadamente centrada em zero), mas a inspeção do gráfico de função aprendida sugere maior dificuldade do modelo na região de $x$ entre aproximadamente 6 e 8, onde a cobertura de exemplos de treino é mais esparsa.
+    \item \textbf{Honestidade estatística — validação vs. teste:} a técnica selecionada como "melhor" depende do conjunto usado como critério. Como o conjunto de validação tem apenas 30 amostras (alta variância), a escolha de hiperparâmetros baseada nele nem sempre generaliza da mesma forma para uma amostra de teste 8$\times$ maior. Isso reforça a importância de reportar métricas de teste — e não apenas de validação — antes de afirmar que uma técnica é definitivamente superior às demais.
+\end{itemize}
+
+\end{document}
