@@ -69,7 +69,7 @@ def moving_average(values, window=SMOOTH_WINDOW):
 # Valores de intensidade escolhidos em ablation_hparam_search.py
 L1_LAMBDA = 0.0001
 L2_LAMBDA = 0.0001
-DROPOUT_RATE = 0.1
+DROPOUT_RATE = 0.05
 MOMENTUM = 0.7
 
 # Definição dos 5 modelos do estudo. Repare que TODOS usam a mesma ARCHITECTURE, o mesmo LEARNING_RATE, os mesmos EPOCHS/BATCH_SIZE e a mesma INIT_SEED

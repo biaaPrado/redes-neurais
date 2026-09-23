@@ -27,7 +27,7 @@ Resumo da busca:
 """
 
 ARCHITECTURE = [1, 16, 8, 1]   # 1 entrada -> 16 neurônios -> 8 neurônios -> 1 saída
-LEARNING_RATE = 0.1
-EPOCHS = 3000
-BATCH_SIZE = 8
+LEARNING_RATE = 0.3 
+EPOCHS = 100000
+BATCH_SIZE = 15
 INIT_SEED = 123                # seed de inicialização de pesos (igual em TODOS os modelos)
