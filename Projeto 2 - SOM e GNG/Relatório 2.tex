@@ -1,0 +1,300 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{tabularx}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black
+}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.2ex plus 0.5ex minus .2ex}{0.6ex}
+\titlespacing*{\subsection}{0pt}{1.0ex plus 0.4ex minus .2ex}{0.4ex}
+
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+% Insere a figura se o arquivo existir; senão, mostra uma caixa de aviso (o PDF sempre compila).
+% Uso: \figarq{caminho/arquivo.png}{largura relativa}{texto do aviso (sem underscore)}
+\newcommand{\figarq}[3]{\IfFileExists{#1}{\includegraphics[width=#2\linewidth]{#1}}%
+{\fbox{\parbox[c][3.8cm][c]{#2\linewidth}{\centering\textit{[#3]}}}}}
+
+% Marca de pendência (texto a preencher/conferir)
+\newcommand{\todo}[1]{\textcolor{red}{#1}}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Projeto 2: Quantização de Cores com SOM e GNG}} \\[0.35em]
+    {\large Disciplina: Redes Neurais Artificiais --- UNIFESP} \\[0.3em]
+    \textbf{Autor(es):} Beatriz Prado Soche (RA: 176112) \\[0.2em]
+    \textbf{Repositório / Código Reprodutível:} \url{https://github.com/biaaPrado/redes-neurais/tree/main/Projeto%202%20-%20SOM%20e%20GNG}
+\end{center}
+\vspace{-0.5em}
+\hrule
+\vspace{0.8em}
+
+\section{Configuração Experimental e Reprodutibilidade}
+
+\subsection{Dados e Pré-processamento}
+Cada imagem colorida foi tratada como um conjunto de dados tridimensional: cada pixel é uma amostra $\mathbf{x}\in\mathbb{R}^3$ com os canais \textit{Red}, \textit{Green} e \textit{Blue}. Foram utilizadas \textbf{5 imagens} (mínimo exigido), todas com pelo menos $100\times100$ px, escolhidas para estressar a quantização de formas distintas (Tabela~\ref{tab:imagens}). Imagens maiores tiveram o lado menor reduzido para 128 px, preservando a proporção, apenas para limitar o tempo de treino.
+
+Os valores foram normalizados por \textbf{Min-Max}, calculada separadamente em cada canal $c\in\{R,G,B\}$:
+\begin{equation}
+x'_c = \frac{x_c - \min(x_c)}{\max(x_c) - \min(x_c)} \in [0,1].
+\end{equation}
+Todo o treinamento e todas as métricas operam no espaço normalizado; a transformação inversa é aplicada somente para \textbf{exibir} as imagens com as cores originais. Por se tratar de aprendizado não supervisionado cujo objetivo é comprimir \textit{a própria imagem}, não há partição treino/validação/teste: os pixels da imagem são usados no treino e na avaliação (ver limitações na Seção~\ref{sec:disc}).
+
+\begin{table}[h]
+\centering
+\small
+\caption{Imagens utilizadas. Dimensões após a redução do lado menor.}
+\label{tab:imagens}
+\begin{tabularx}{\textwidth}{llcX}
+\toprule
+\textbf{Imagem} & \textbf{Tipo de desafio} & \textbf{Dimensão (px)} & \textbf{Fonte} \\
+\midrule
+\texttt{altaSaturacao}  & Cores saturadas, uso amplo do cubo RGB & $171\times128$ & \todo{fonte/autor} \\
+\texttt{corRara}        & Cor rara e relevante em cena dominante & $192\times128$ & \todo{fonte/autor} \\
+\texttt{paisagem}       & Degradês suaves (céu/água) & $192\times128$ & \todo{fonte/autor} \\
+\texttt{paisagem2}      & Degradês suaves (céu/água) & $192\times128$ & \todo{fonte/autor} \\
+\texttt{retratoHumano}  & Tons de pele (variação sutil) & $193\times128$ & \todo{fonte/autor} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Arquiteturas Fixas e Espaço de Hiperparâmetros}
+As \textbf{redes são fixas}: SOM com grades $4\times4$, $8\times8$ e $16\times16$ (16, 64 e 256 neurônios) e GNG com no máximo 16, 64 e 256 neurônios. Somente os hiperparâmetros da Tabela~\ref{tab:hiper} foram variados. O SOM foi implementado com a biblioteca \textit{MiniSom} (topologia retangular, vizinhança gaussiana, pesos iniciais sorteados dentre os pixels); o GNG foi implementado diretamente em NumPy. Com as combinações da tabela, cada imagem gera 42 treinamentos ($3\times6$ do SOM $+\ 3\times8$ do GNG), totalizando \textbf{210 simulações} nas 5 imagens (30 simulações-base, uma por par imagem $\times$ rede, cada uma repetida para todas as combinações de hiperparâmetros).
+
+\begin{table}[h]
+\centering
+\small
+\caption{Espaço de hiperparâmetros amostrado e padrão observado nas melhores configurações.}
+\label{tab:hiper}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Parâmetro} & \textbf{Valores testados} & \textbf{Melhor (menor QE)} \\
+\midrule
+\multicolumn{3}{l}{\textit{SOM (MiniSom), 20\,000 iterações, semente 42}} \\
+$\sigma_0$ (raio inicial da vizinhança) & $0{,}5L$ e $0{,}25L$ ($L$ = lado da grade) & $0{,}25L$ em \textbf{15/15} casos \\
+$\eta_0$ (taxa de aprendizado inicial) & 0,1; 0,5; 1,0 & 0,1 (16 neur., 5/5); 0,5 (64 neur., 4/5); sem padrão em 256 \\
+\midrule
+\multicolumn{3}{l}{\textit{GNG, $\lambda=100$, $\alpha=0{,}5$, $d=0{,}995$ fixos, semente 42}} \\
+$\varepsilon_b$ (taxa do vencedor) & 0,05; 0,2 & 0,05 (16 neur., 4/5); 0,2 (256 neur., 5/5) \\
+$\varepsilon_n$ (taxa dos vizinhos) & 0,001; 0,006 & 0,001 (16 e 64 neur., 8/10); 0,006 (256 neur., 5/5) \\
+$a_{\max}$ (idade máx. das arestas) & 25; 50 & 25 em \textbf{4/5} imagens (256 neur.) \\
+Nº de passos & $\lambda N_{\max} + 15\,000$ & --- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Inferência e Métricas de Avaliação}
+Na inferência, cada pixel é substituído pelo vetor de pesos do seu neurônio vencedor (BMU), e a matriz da imagem é reconstruída. Sendo $N$ o número de pixels, $b_1(i)$ e $b_2(i)$ o primeiro e o segundo neurônios mais próximos de $\mathbf{x}_i$ e $\mathbf{w}$ os pesos:
+\begin{align}
+\mathrm{QE} &= \frac{1}{N}\sum_{i=1}^{N}\lVert \mathbf{x}_i-\mathbf{w}_{b_1(i)}\rVert_2, &
+\mathrm{TE} &= \frac{1}{N}\sum_{i=1}^{N}\mathbb{1}\!\left[b_1(i)\not\sim b_2(i)\right],\\
+\mathrm{MSE} &= \frac{1}{3N}\sum_{i=1}^{N}\lVert \mathbf{x}_i-\mathbf{w}_{b_1(i)}\rVert_2^2, &
+\mathrm{PSNR} &= 10\log_{10}\frac{1}{\mathrm{MSE}}\ \text{[dB]}.
+\end{align}
+No SOM, $b_1\sim b_2$ significa vizinhos na grade (distância de Chebyshev $\le 1$); no GNG, significa estarem ligados por uma aresta (erro topológico). Além disso, calculou-se o SSIM entre a imagem original e a reconstruída (canais RGB, \texttt{data\_range}$=1$). A melhor configuração de cada par (imagem, rede) foi escolhida pelo \textbf{menor QE}.
+
+\section{Efeito dos Hiperparâmetros e Dinâmica de Aprendizado}
+
+A Figura~\ref{fig:hiper} mostra o QE médio (entre as imagens) de cada combinação de hiperparâmetros, para cada rede.
+
+\begin{figure}[h]
+\centering
+\figarq{resultados/hiperparametros.png}{0.98}{Figura hiperparametros.png: QE medio por combinacao de hiperparametros}
+\caption{QE médio $\pm$ desvio padrão por combinação de hiperparâmetros (linha superior: SOM; inferior: GNG).}
+\label{fig:hiper}
+\end{figure}
+
+\textbf{Análise Crítica:}
+\begin{itemize}
+    \item \textbf{Raio da vizinhança (SOM):} a menor vizinhança inicial testada ($0{,}25L$) venceu em todos os 15 casos (5 imagens $\times$ 3 grades). Como o valor ótimo está na \textbf{borda} do espaço de busca, é possível que valores ainda menores melhorem o QE; isso não foi testado. Um raio menor reduz a ``puxada'' coletiva dos vizinhos e deixa cada neurônio se ajustar mais à sua região de cores, o que favorece o QE (possivelmente à custa de topologia).
+    \item \textbf{Taxa de aprendizado (SOM):} com 16 neurônios, $\eta_0=0{,}1$ foi a melhor em 5/5 imagens; com 64, $\eta_0=0{,}5$ em 4/5; com 256 não houve padrão (0,1; 0,5 e 1,0 aparecem como melhores). Hipótese: grades pequenas têm poucos neurônios disputando muitos pixels e se beneficiam de passos menores, enquanto grades maiores toleram taxas altas.
+    \item \textbf{Taxas do GNG:} com 16 neurônios, $(\varepsilon_b,\varepsilon_n)=(0{,}05;\,0{,}001)$ venceu em 4/5 imagens; com 64, $\varepsilon_n=0{,}001$ venceu em 4/5 (com $\varepsilon_b$ dividido); com 256, o par $(0{,}2;\,0{,}006)$ venceu em \textbf{5/5}. Hipótese: com muitos neurônios, cada um cobre poucos pixels e precisa se mover mais rápido para convergir no número de passos disponível.
+    \item \textbf{Idade máxima das arestas:} $a_{\max}=25$ foi preferido em 4 de 5 imagens com 256 neurônios, sugerindo que remover arestas mais cedo ajuda a manter o grafo atualizado enquanto os neurônios se deslocam.
+    \item \textbf{Importância relativa dos hiperparâmetros:} no SOM, o raio $\sigma_0$ domina. Na média sobre todas as imagens e taxas, o $\sigma_0$ menor reduziu o QE em $\approx17\%$ (16 neur.: 0,088 contra 0,107), $\approx31\%$ (64: 0,052 contra 0,076) e $\approx38\%$ (256: 0,037 contra 0,059). Já a taxa $\eta_0$ teve efeito pequeno: a diferença entre a melhor e a pior taxa foi de $\approx7\%$, $6\%$ e $2\%$ do QE médio, respectivamente. No GNG, todas as 8 combinações ficaram próximas: o QE médio de cada combinação variou apenas $\approx6\%$ (16 neur.: 0,0786 a 0,0835), $3\%$ (64: 0,0407 a 0,0421) e $8\%$ (256: 0,0231 a 0,0249). Ou seja, o GNG é \textbf{robusto} à escolha dos hiperparâmetros, enquanto o SOM é sensível ao raio da vizinhança. Com 64 e 256 neurônios, até a \emph{pior} combinação média do GNG teve QE menor que a \emph{melhor} do SOM (0,0249 contra $\approx0{,}036$ com 256 neur.).
+    \item \textbf{Leitura das barras de erro:} as barras da Figura~\ref{fig:hiper} representam o desvio padrão \emph{entre imagens} (cada imagem tem um QE base muito diferente), e não a incerteza de cada combinação. Por isso elas se sobrepõem mesmo quando uma combinação é melhor que outra em todas as imagens; a comparação correta é a das barras entre si, não da sobreposição.
+\end{itemize}
+
+\section{Resultados Quantitativos e Qualitativos}
+
+A Tabela~\ref{tab:resumo} resume as métricas (média $\pm$ desvio padrão entre as 5 imagens, usando a melhor configuração de cada uma) e a Tabela~\ref{tab:porimagem} detalha o QE e o PSNR por imagem.
+
+\begin{table}[h]\centering
+\small
+\caption{Métricas por rede (média $\pm$ dp entre as 5 imagens; melhor configuração de cada imagem).}
+\label{tab:resumo}
+\begin{tabularx}{\textwidth}{llXXXXX}
+\toprule
+\textbf{Modelo} & \textbf{Neur.} & \textbf{QE} & \textbf{TE} & \textbf{MSE} & \textbf{PSNR (dB)} & \textbf{SSIM} \\
+\midrule
+SOM & 16  & $0{,}0848\pm0{,}0244$ & $0{,}0412\pm0{,}0305$ & $0{,}0035\pm0{,}0017$ & $24{,}92\pm2{,}15$ & $0{,}779\pm0{,}073$ \\
+SOM & 64  & $0{,}0512\pm0{,}0153$ & $0{,}0471\pm0{,}0542$ & $0{,}0015\pm0{,}0008$ & $28{,}71\pm2{,}01$ & $0{,}889\pm0{,}039$ \\
+SOM & 256 & $0{,}0356\pm0{,}0136$ & $0{,}0718\pm0{,}0763$ & $0{,}0009\pm0{,}0006$ & $31{,}30\pm2{,}72$ & $0{,}935\pm0{,}031$ \\
+\midrule
+GNG & 16  & $0{,}0783\pm0{,}0247$ & $0{,}0048\pm0{,}0023$ & $0{,}0030\pm0{,}0018$ & $25{,}80\pm2{,}64$ & $0{,}794\pm0{,}067$ \\
+GNG & 64  & $0{,}0403\pm0{,}0131$ & $0{,}0165\pm0{,}0059$ & $0{,}0008\pm0{,}0005$ & $31{,}68\pm2{,}90$ & $0{,}912\pm0{,}033$ \\
+\textbf{GNG} & \textbf{256} & $\mathbf{0{,}0230\pm0{,}0079}$ & $0{,}0219\pm0{,}0070$ & $\mathbf{0{,}0003\pm0{,}0002}$ & $\mathbf{36{,}62\pm3{,}01}$ & $\mathbf{0{,}963\pm0{,}017}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[h]\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\caption{QE e PSNR por imagem (melhor configuração). K = número de neurônios.}
+\label{tab:porimagem}
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{QE, K=16}} & \multicolumn{2}{c}{\textbf{QE, K=256}} & \multicolumn{2}{c}{\textbf{PSNR (dB), K=256}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+\textbf{Imagem} & SOM & GNG & SOM & GNG & SOM & GNG \\
+\midrule
+\texttt{altaSaturacao}  & 0,1151 & 0,1126 & 0,0554 & 0,0334 & 27,1 & 33,0 \\
+\texttt{corRara}        & 0,0516 & 0,0447 & 0,0190 & 0,0124 & 33,9 & 41,0 \\
+\texttt{paisagem}       & 0,0862 & 0,0765 & 0,0319 & 0,0209 & 33,2 & 37,4 \\
+\texttt{paisagem2}      & 0,0990 & 0,0868 & 0,0412 & 0,0273 & 30,2 & 34,9 \\
+\texttt{retratoHumano}  & 0,0724 & 0,0707 & 0,0304 & 0,0211 & 32,2 & 36,8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados/resumo_metricas.png}{0.98}{Figura resumo metricas.png: QE, TE, PSNR e SSIM por numero de neuronios}
+\caption{Comparação SOM $\times$ GNG em QE, TE, PSNR e SSIM (média $\pm$ dp entre as imagens).}
+\label{fig:resumo}
+\end{figure}
+
+\textbf{Avaliação qualitativa.} As Figuras~\ref{fig:quali1} e~\ref{fig:quali2} mostram, para o mesmo $K$, a imagem original, a reconstruída e a paleta de centroides efetivamente usados (cores dos neurônios que venceram ao menos um pixel).
+
+\begin{figure}[h]
+\centering
+\begin{minipage}{0.48\textwidth}
+    \centering
+    \figarq{resultados/estilo_referencia/corRara_SOM_K16.png}{1.0}{corRara SOM K16}
+    \caption{\texttt{corRara}: SOM, $K=16$ (sem centroide vermelho: o carro fica marrom).}
+    \label{fig:quali1}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+    \centering
+    \figarq{resultados/estilo_referencia/corRara_GNG_K16.png}{1.0}{corRara GNG K16}
+    \caption{\texttt{corRara}: GNG, $K=16$ (um centroide vermelho é preservado).}
+    \label{fig:quali2}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{minipage}{0.48\textwidth}
+    \centering
+    \figarq{resultados/estilo_referencia/paisagem_SOM_K16.png}{1.0}{paisagem SOM K16}
+    \caption{\texttt{paisagem}: SOM, $K=16$ (efeito de \textit{banding} no céu).}
+    \label{fig:quali3}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+    \centering
+    \figarq{resultados/estilo_referencia/paisagem_GNG_K256.png}{1.0}{paisagem GNG K256}
+    \caption{\texttt{paisagem}: GNG, $K=256$.}
+    \label{fig:quali4}
+\end{minipage}
+\end{figure}
+
+O Apêndice~\ref{ap:todas} reúne as \textbf{30 reconstruções} (5 imagens $\times$ 6 redes), com GNG e SOM lado a lado.
+
+\textbf{Observações qualitativas.}
+\begin{itemize}
+    \item \textbf{\textit{Banding} nos degradês:} com $K=16$, o céu de \texttt{paisagem}, \texttt{paisagem2} e \texttt{corRara} vira faixas horizontais de cor chapada em ambos os modelos (Figura~\ref{fig:quali3}), pois os poucos centroides não cobrem os tons intermediários. Com $K=64$ o efeito já é bem mais discreto, e com $K=256$ o GNG fica visualmente quase indistinguível do original (Figura~\ref{fig:quali4}).
+    \item \textbf{Cor rara (\texttt{corRara}):} o carro vermelho ocupa poucos pixels. Com $K=16$, a paleta do SOM não tem nenhum centroide vermelho e o carro sai marrom/laranja (Figura~\ref{fig:quali1}); o GNG preserva um centroide vermelho (Figura~\ref{fig:quali2}). O mapa de erro mostra o carro como a região mais clara no SOM com 16 e 64 neurônios, e ainda com um resíduo visível com 256, ao passo que no GNG com 256 neurônios o carro praticamente desaparece do mapa. Isso é coerente com o mecanismo do GNG, que insere neurônios onde o erro acumulado é maior, e não onde há mais pixels.
+    \item \textbf{Retrato:} com $K=16$, a pele do rosto aparece em manchas (patches) de tons próximos e o fundo desfocado vira blocos laranja; o erro se concentra nos contornos (cabelo e rosto) e na região mais saturada do fundo. Com $K\ge 64$ a pele fica contínua e com 256 neurônios a diferença para o original é difícil de perceber a olho nu.
+    \item \textbf{Cores saturadas e balões (\texttt{altaSaturacao}, \texttt{paisagem2}):} com $K=16$ as esferas perdem os reflexos e viram regiões planas; os balões de \texttt{paisagem2} perdem fidelidade de cor no SOM com 16 e 64 neurônios (aparecem destacados nos mapas de erro), enquanto o GNG os preserva melhor.
+    \item \textbf{Onde fica o erro:} em todas as imagens o erro residual se concentra em \textbf{bordas e texturas finas} (folhagem, cabelo, contornos), e não em áreas uniformes. Isso explica por que o SSIM, sensível à estrutura local, sobe mais devagar que o PSNR.
+\end{itemize}
+
+\section{Discussão e Lições Aprendidas}
+\label{sec:disc}
+
+\begin{itemize}
+    \item \textbf{GNG $\times$ SOM em fidelidade de cor:} o GNG obteve QE menor que o SOM em todas as imagens e em todos os tamanhos de rede. A redução média do QE foi de $\approx 8\%$ (16 neur.), $\approx 21\%$ (64) e $\approx 35\%$ (256), e o ganho médio de PSNR foi de $+0{,}9$, $+3{,}0$ e $+5{,}3$ dB, respectivamente. A vantagem cresce com o número de neurônios: com poucas cores ambos só cobrem as cores dominantes (e com 16 neurônios o ganho médio de 0,9 dB é menor que a variação entre imagens, $\text{dp}\approx 2$--$3$ dB, embora o GNG seja melhor nas 5 imagens), mas com 256 o GNG aloca neurônios onde o erro se acumula, ao passo que a grade fixa do SOM mantém neurônios em regiões pouco povoadas do espaço RGB para preservar a vizinhança.
+    \item \textbf{Preservação topológica:} o TE médio do GNG ($0{,}005$ a $0{,}022$) foi menor que o do SOM ($0{,}041$ a $0{,}072$), e o SOM apresentou variação muito maior entre imagens (desvio de $0{,}076$ com 256 neurônios; em \texttt{corRara}, TE $=0{,}195$ com 256 e $0{,}133$ com 64 neurônios). Uma grade 2D precisa ``dobrar-se'' para cobrir o cubo RGB, e pixels de uma mesma região passam a ter 1º e 2º BMU distantes na grade. Em ambos os modelos o TE médio \textbf{aumenta} com o número de neurônios. \textit{Cautela:} as definições de adjacência diferem (grade $\times$ aresta) e, no GNG, a aresta entre os dois vencedores é criada durante o treino, o que favorece o TE por construção.
+    \item \textbf{Dependência do conteúdo da imagem:} o conteúdo pesou tanto quanto o método. Com GNG de 256 neurônios, \texttt{corRara} atingiu 41,0 dB, contra 33,0 dB de \texttt{altaSaturacao}. Com 16 neurônios, \texttt{corRara} teve SSIM de 0,885, enquanto \texttt{altaSaturacao}, \texttt{paisagem} e \texttt{paisagem2} ficaram em $\approx 0{,}745$: imagens saturadas e imagens com degradês longos (céu/água) são igualmente difíceis para poucas cores, as primeiras por dispersarem os pixels pelo cubo RGB e as segundas por exigirem muitos tons intermediários (\textit{banding}).
+    \item \textbf{Métricas nem sempre concordam:} em \texttt{altaSaturacao} com 16 neurônios, o GNG tem QE menor (0,1126 $\times$ 0,1151), mas o SOM tem SSIM ligeiramente maior (0,756 $\times$ 0,747). O QE mede distância de cor pixel a pixel; o SSIM mede estrutura local, daí a importância de reportar ambas e de inspecionar os mapas de erro.
+    \item \textbf{Custo computacional e uso dos neurônios:} o tempo médio de treino do GNG foi maior, e a diferença cresce com a rede (0,86 s $\times$ 0,64 s com 16 neur.; 2,5 s $\times$ 0,94 s com 256 neur., ou seja, $\approx 2{,}7\times$ mais lento), pois o GNG busca o vencedor entre os neurônios ativos, gerencia arestas e insere neurônios ao longo do treino. Nas melhores configurações, praticamente todos os neurônios foram usados por ao menos um pixel (em média 255,6 de 256 no SOM e 253,8 de 256 no GNG), isto é, não houve neurônios ``mortos'' relevantes.
+    \item \textbf{Limitações:}
+    \begin{itemize}
+        \item \textit{Viés de seleção:} o GNG teve 8 combinações de hiperparâmetros e o SOM, 6; como a melhor foi escolhida pelo menor QE, o GNG teve uma tentativa extra de ``acertar''.
+        \item \textit{Uma semente por configuração} (42): diferenças pequenas, sobretudo com 16 neurônios, podem ser ruído; o ideal é repetir com várias sementes.
+        \item \textit{Ótimos na borda do espaço de busca} (Seção 2): a busca não está esgotada.
+        \item \textit{Sem conjunto de teste:} o treino e a avaliação usam os mesmos pixels, o que é adequado à compressão da própria imagem, mas não mede generalização para outras imagens.
+        \item \textit{Redução de resolução} para 128 px no lado menor: os resultados absolutos podem mudar em resoluções maiores.
+    \end{itemize}
+\end{itemize}
+
+\section{Conclusão}
+
+Recomendamos o \textbf{GNG} para a quantização de cores: nas 5 imagens ele obteve QE menor que o SOM em todos os tamanhos de rede, com ganho médio de PSNR de $+0{,}9$, $+3{,}0$ e $+5{,}3$ dB (16, 64 e 256 neurônios), erro topológico menor e melhor preservação de cores raras (como o carro vermelho de \texttt{corRara}), além de ser pouco sensível aos hiperparâmetros, ao passo que o SOM depende fortemente do raio da vizinhança. O custo é um treino mais lento ($\approx 2{,}7\times$ com 256 neurônios), e com apenas 16 cores a diferença entre os métodos é pequena, de modo que o SOM, mais simples e rápido, é uma alternativa razoável nesse caso. Essas conclusões se baseiam em 5 imagens e uma única semente por configuração, e devem ser confirmadas com mais imagens e repetições.
+
+\appendix
+\section{Todas as reconstruções (5 imagens $\times$ 6 redes = 30)}
+\label{ap:todas}
+
+Cada figura mostra a imagem original (topo) e, abaixo, as reconstruções com a melhor configuração de hiperparâmetros de cada rede (menor QE): \textbf{GNG à esquerda e SOM à direita}, com $K=16$, $64$ e $256$ neurônios (cores). Sobre cada reconstrução estão o QE, o PSNR e o SSIM.
+
+\clearpage
+\begin{figure}[p]
+\centering
+\figarq{resultados/paineis/altaSaturacao_painel.png}{0.80}{Painel altaSaturacao: original e reconstrucoes GNG e SOM}
+\caption{\texttt{altaSaturacao}: original e reconstruções GNG (esquerda) e SOM (direita) para $K=16$, $64$ e $256$.}
+\label{fig:painel1}
+\end{figure}
+
+\clearpage
+\begin{figure}[p]
+\centering
+\figarq{resultados/paineis/corRara_painel.png}{0.80}{Painel corRara: original e reconstrucoes GNG e SOM}
+\caption{\texttt{corRara}: original e reconstruções GNG (esquerda) e SOM (direita) para $K=16$, $64$ e $256$.}
+\label{fig:painel2}
+\end{figure}
+
+\clearpage
+\begin{figure}[p]
+\centering
+\figarq{resultados/paineis/paisagem_painel.png}{0.80}{Painel paisagem: original e reconstrucoes GNG e SOM}
+\caption{\texttt{paisagem}: original e reconstruções GNG (esquerda) e SOM (direita) para $K=16$, $64$ e $256$.}
+\label{fig:painel3}
+\end{figure}
+
+\clearpage
+\begin{figure}[p]
+\centering
+\figarq{resultados/paineis/paisagem2_painel.png}{0.80}{Painel paisagem2: original e reconstrucoes GNG e SOM}
+\caption{\texttt{paisagem2}: original e reconstruções GNG (esquerda) e SOM (direita) para $K=16$, $64$ e $256$.}
+\label{fig:painel4}
+\end{figure}
+
+\clearpage
+\begin{figure}[p]
+\centering
+\figarq{resultados/paineis/retratoHumano_painel.png}{0.80}{Painel retratoHumano: original e reconstrucoes GNG e SOM}
+\caption{\texttt{retratoHumano}: original e reconstruções GNG (esquerda) e SOM (direita) para $K=16$, $64$ e $256$.}
+\label{fig:painel5}
+\end{figure}
+
+\end{document}

@@ -1,6 +1,8 @@
 """
 QUANTIZAÇÃO DE CORES COM MiniSom (SOM) E GNG  -  versão experimental
 ====================================================================
+Uso: python quantizacao_final.py imagens/
+
 Dependências:
     pip install numpy pandas matplotlib pillow minisom scikit-image
 
@@ -25,13 +27,13 @@ from PIL import Image
 from minisom import MiniSom
 from skimage.metrics import structural_similarity
 
-#arquitetura fixa, mudança apenas de hiperparâmetros e número de neurônios
-# ---------------------------------------------------------------------
-SEED = 42
-LADO_MENOR = 128  #imagens maiores têm o lado menor reduzido p/ 128 px (treino mais rápido)
-LADO_MINIMO = 100
 
-REDES_SOM = [4, 8, 16]  #grades 4x4, 8x8, 16x16  (16, 64 e 256 neurônios)
+# Arquitetura fixa, apenas hiperparâmetros variam (para estudo de sensibilidade)
+SEED = 42
+LADO_MENOR = 128  # imagens maiores têm o lado menor reduzido p/ 128 px (treino mais rápido)
+LADO_MINIMO = 100  # exigência do trabalho
+
+REDES_SOM = [4, 8, 16]  # grades 4x4, 8x8, 16x16  (16, 64 e 256 neurônios)
 REDES_GNG = [16, 64, 256]  # nº máximo de neurônios do GNG
 
 # hiperparâmetros do SOM (MiniSom). sigma = fração * lado da grade
@@ -195,7 +197,6 @@ def rodar_imagem(nome, img_norm):
         hp = f"sigma={max(1.0, lado*sf):g}, lr={lr}"
         linhas.append(dict(imagem=nome, modelo="SOM", neuronios=lado * lado, hiperparametros=hp, tempo_s=time.time() - t0, **m))
         guardadas[("SOM", lado * lado, hp)] = img_q
-    
     # ---- GNG ----
     for n, eb, en, ia in itertools.product(REDES_GNG, GRADE_GNG["eps_b"], GRADE_GNG["eps_n"], GRADE_GNG["idade_max"]):
         t0 = time.time()
@@ -239,7 +240,8 @@ def figuras_resumo(df, melhores):
     for a, met in zip(ax, ("QE", "TE", "PSNR", "SSIM")):
         for modelo, cor in (("SOM", "tab:blue"), ("GNG", "tab:orange")):
             g = melhores[melhores.modelo == modelo].groupby("neuronios")[met]
-            a.errorbar(g.mean().index, g.mean().values, yerr=g.std().values, fmt="o-", capsize=4, label=modelo, color=cor)
+            a.errorbar(g.mean().index, g.mean().values, yerr=g.std().values, fmt="o-",
+                       capsize=4, label=modelo, color=cor)
         a.set_xscale("log", base=2); a.set_xlabel("nº de neurônios (cores)")
         a.set_title(f"{met} (melhor config, média ± dp)"); a.legend()
     plt.tight_layout(); plt.savefig("resultados/resumo_metricas.png", dpi=110); plt.close()
@@ -254,6 +256,29 @@ def figuras_resumo(df, melhores):
             ax[i, j].set_yticks(range(len(m))); ax[i, j].set_yticklabels(m.index, fontsize=7)
             ax[i, j].set_title(f"{modelo} - {n} neurônios"); ax[i, j].set_xlabel("QE médio")
     plt.tight_layout(); plt.savefig("resultados/hiperparametros.png", dpi=110); plt.close()
+
+
+def figura_painel(nome, img, mn, mx, df_img, guardadas):
+    """Uma figura por imagem (para o relatório): Original no topo; abaixo, uma linha por K
+    (16, 64, 256) com GNG à esquerda e SOM à direita. Usa a melhor config (menor QE) de cada rede.
+    Salva em resultados/paineis/<nome>_painel.png"""
+    pasta = "resultados/paineis"
+    os.makedirs(pasta, exist_ok=True)
+    fig = plt.figure(figsize=(8, 10.2), facecolor="white")
+    gs = fig.add_gridspec(4, 4, hspace=0.30, wspace=0.08, left=0.02, right=0.98, top=0.965, bottom=0.015)
+    ax = fig.add_subplot(gs[0, 1:3])  # original centralizada
+    ax.imshow(img); ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title("Imagem original", fontsize=11, fontweight="bold")
+    for linha, n in enumerate((16, 64, 256), start=1):
+        for coluna, modelo in ((slice(0, 2), "GNG"), (slice(2, 4), "SOM")):
+            sub = df_img[(df_img.modelo == modelo) & (df_img.neuronios == n)]
+            b = sub.loc[sub.QE.idxmin()]
+            img_q = desnormalizar(guardadas[(modelo, n, b.hiperparametros)], mn, mx)
+            ax = fig.add_subplot(gs[linha, coluna])
+            ax.imshow(img_q); ax.set_xticks([]); ax.set_yticks([])
+            ax.set_title(f"{modelo}, K={n}\nQE={b.QE:.3f} | PSNR={b.PSNR:.1f} dB | SSIM={b.SSIM:.3f}", fontsize=9)
+    fig.savefig(f"{pasta}/{nome}_painel.png", dpi=150, facecolor="white")
+    plt.close(fig)
 
 
 def figura_estilo_referencia(nome, img, mn, mx, df_img, guardadas):
@@ -276,8 +301,7 @@ def figura_estilo_referencia(nome, img, mn, mx, df_img, guardadas):
             n_lin = int(np.ceil(len(paleta) / por_linha))
 
             fig = plt.figure(figsize=(9, 4.2 + 0.32 * n_lin), facecolor=FUNDO)
-            gs = fig.add_gridspec(2, 2, height_ratios=[6, 0.5 + 0.55 * n_lin],
-                                  hspace=0.12, wspace=0.04, left=0.03, right=0.97,
+            gs = fig.add_gridspec(2, 2, height_ratios=[6, 0.5 + 0.55 * n_lin], hspace=0.12, wspace=0.04, left=0.03, right=0.97,
                                   top=0.93, bottom=0.03)
             for col, (im, tit) in enumerate(((img, "Original"), (img_q, f"Quantized ({modelo}, K={n})"))):
                 ax = fig.add_subplot(gs[0, col])
@@ -297,7 +321,11 @@ def figura_estilo_referencia(nome, img, mn, mx, df_img, guardadas):
             plt.close(fig)
 
 
+
+
+
 if __name__ == "__main__":
+    print("Executando o arquivo:", os.path.abspath(__file__))  # confirma QUAL arquivo está rodando
     pasta = sys.argv[1] if len(sys.argv) > 1 else "imagens"
     arquivos = sorted(f for ext in ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
                       for f in glob.glob(os.path.join(pasta, ext)))
@@ -321,6 +349,7 @@ if __name__ == "__main__":
                   f"PSNR={r.PSNR:.1f} SSIM={r.SSIM:.3f}  [{r.hiperparametros}]")
         figura_qualitativa(nome, img, img_norm, mn, mx, df_img, guardadas)
         figura_estilo_referencia(nome, img, mn, mx, df_img, guardadas)
+        figura_painel(nome, img, mn, mx, df_img, guardadas)
         todas.append(df_img)
 
     df = pd.concat(todas, ignore_index=True)
@@ -334,3 +363,5 @@ if __name__ == "__main__":
     print("\n===== RESUMO (média entre as imagens, melhor config de cada uma) =====")
     print(resumo.to_string())
     print(f"\nTotal de simulações: {len(df)}  ->  pasta 'resultados/'")
+    print("Painéis (relatório) salvos em:", os.path.abspath("resultados/paineis"))
+    print("Figuras estilo referência em:", os.path.abspath("resultados/estilo_referencia"))
