@@ -1,0 +1,274 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{tabularx}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black
+}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.2ex plus 0.5ex minus .2ex}{0.6ex}
+\titlespacing*{\subsection}{0pt}{1.0ex plus 0.4ex minus .2ex}{0.4ex}
+
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+% Insere a figura se o arquivo existir; senão, mostra uma caixa de aviso (o PDF sempre compila).
+% Uso: \figarq{caminho/arquivo.png}{largura relativa}{texto do aviso (sem underscore)}
+\newcommand{\figarq}[3]{\IfFileExists{#1}{\includegraphics[width=#2\linewidth]{#1}}%
+{\fbox{\parbox[c][3.8cm][c]{#2\linewidth}{\centering\textit{[#3]}}}}}
+
+% Marca de pendência (texto a preencher/conferir)
+\newcommand{\todo}[1]{\textcolor{red}{#1}}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Projeto 3: Modelo Generativo (VAE) no Fashion-MNIST}} \\[0.35em]
+    {\large Disciplina: Redes Neurais Artificiais --- UNIFESP} \\[0.3em]
+    \textbf{Autor(es):} Beatriz Prado Soche (RA: 176112) \\[0.2em]
+    \textbf{Repositório / Código Reprodutível:} \url{https://github.com/biaaPrado/redes-neurais/tree/main/Projeto%203%20-%20Generativo%20(VAE)}
+\end{center}
+\vspace{-0.5em}
+\hrule
+\vspace{0.8em}
+
+\section{Configuração Experimental e Reprodutibilidade}
+
+\subsection{Dados e Pré-processamento}
+Foi utilizado o \textbf{Fashion-MNIST}: 70\,000 imagens em tons de cinza de $28\times28$ pixels, de 10 classes (camiseta/top, calça, pulôver, vestido, casaco, sandália, camisa, tênis, bolsa e bota). Cada imagem foi achatada em um vetor de 784 pixels e normalizada para $[0,1]$ dividindo-se por 255. Como essa normalização é uma constante fixa (não estima média nem desvio dos dados), não há risco de vazamento de dados (\textit{data leakage}).
+
+As 60\,000 imagens do conjunto de treino original foram divididas aleatoriamente (semente 42) em \textbf{48\,000 para treino (80\%)} e \textbf{12\,000 para validação (20\%)}. A validação foi usada para escolher a topologia, os hiperparâmetros e a parada do treino. As \textbf{10\,000 imagens do conjunto de teste oficial} foram usadas somente na avaliação final e na análise do espaço latente.
+
+\subsection{Modelo (VAE) e Função de Custo}
+O VAE é formado por um \textit{encoder}, que mapeia a imagem $\mathbf{x}\in\mathbb{R}^{784}$ para os parâmetros de uma gaussiana $q(\mathbf{z}|\mathbf{x})=\mathcal{N}(\boldsymbol{\mu},\mathrm{diag}(\boldsymbol{\sigma}^2))$ no espaço latente de dimensão $d\in\{2,8\}$, e por um \textit{decoder}, que reconstrói a imagem a partir de $\mathbf{z}$. O \textit{encoder} é uma MLP (camadas densas com ReLU) cujas últimas saídas são $\boldsymbol{\mu}$ e $\log\boldsymbol{\sigma}^2$; o \textit{decoder} é o espelho do \textit{encoder} e termina em 784 saídas passadas por uma sigmoide. A amostragem usa o truque da reparametrização, $\mathbf{z}=\boldsymbol{\mu}+\boldsymbol{\sigma}\odot\boldsymbol{\varepsilon}$, com $\boldsymbol{\varepsilon}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$, o que permite propagar o gradiente.
+
+O custo é o negativo do limite inferior da evidência (ELBO), com $\beta=1$:
+\begin{equation}
+\mathcal{L}(\mathbf{x}) = \underbrace{-\sum_{j=1}^{784}\big[x_j\log\hat{x}_j+(1-x_j)\log(1-\hat{x}_j)\big]}_{\text{reconstrução (entropia cruzada binária)}} \;+\; \underbrace{\left(-\tfrac{1}{2}\sum_{k=1}^{d}\big(1+\log\sigma_k^2-\mu_k^2-\sigma_k^2\big)\right)}_{\mathrm{KL}\left(q(\mathbf{z}|\mathbf{x})\,\|\,\mathcal{N}(\mathbf{0},\mathbf{I})\right)}.
+\end{equation}
+Todos os custos reportados são \textbf{médias por imagem}. O termo de reconstrução mede a fidelidade da imagem; o KL aproxima o espaço latente de $\mathcal{N}(\mathbf{0},\mathbf{I})$, o que permite gerar imagens novas sorteando $\mathbf{z}$. O treino usou o otimizador Adam, \textit{early stopping} sobre o custo de validação e, ao final, restauração dos pesos da melhor época.
+
+\subsection{Busca de Hiperparâmetros e Refinamento}
+Para cada dimensão latente ($d=2$ e $d=8$), a topologia foi ajustada de forma independente, variando as camadas ocultas, a taxa de aprendizado e o tamanho do lote (Tabela~\ref{tab:hiper}). A melhor configuração foi escolhida pelo \textbf{menor custo no conjunto de validação}, totalizando $2\times16=32$ treinamentos.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Espaço de hiperparâmetros da busca e melhor configuração de cada espaço latente.}
+\label{tab:hiper}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Componente} & \textbf{Valores testados} & \textbf{Melhor (menor custo na validação)} \\
+\midrule
+Dimensão latente $d$ & 2; 8 (buscas independentes) & --- \\
+Topologia (ocultas do \textit{encoder}; \textit{decoder} espelhado) & 256; 256-128; 512-256; 512-256-128 & $d=2$: 512-256-128; \; $d=8$: 512-256 \\
+Taxa de aprendizado (Adam) & $5\times10^{-4}$; $10^{-3}$ & $5\times10^{-4}$ (ambos) \\
+Tamanho do lote & 128; 256 & 128 (ambos) \\
+Função de custo & BCE + $\beta\cdot$KL, $\beta=1$ & --- \\
+Critério de parada & \textit{Early stopping} (paciência 5), máx. 40 épocas & --- \\ Semente aleatória & 42 & --- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Como os melhores modelos da busca pararam nas épocas 38 e 39 (de um limite de 40), não foi possível afirmar que tivessem convergido, e por isso realizou-se um \textbf{experimento de refinamento}: apenas a melhor configuração de cada $d$ foi retreinada do zero, com a mesma semente, com até \todo{150} épocas e paciência 10. Como a semente é a mesma, as primeiras épocas reproduzem o treino da busca, e o refinamento apenas o estende. Os modelos refinados são os \textbf{modelos finais} usados na análise do espaço latente. Os resultados ficam em duas pastas: \texttt{resultados\_vae/} (busca, até 40 épocas) e \texttt{resultados\_vae\_refinado/} (modelos refinados).
+
+\subsection{Avaliação do Espaço Latente}
+A representação latente de cada imagem de teste é a média $\boldsymbol{\mu}$ de $q(\mathbf{z}|\mathbf{x})$. Para $d=8$, a projeção em 2D foi feita por PCA, \textbf{ajustado nos dados de treino} e aplicado ao teste, reportando-se a variância explicada. Para quantificar clusters e separação de rótulos, usaram-se: (i) \textbf{silhouette} com os rótulos (de $-1$ a $1$; quanto maior, mais coesas e separadas as classes); (ii) \textbf{NMI} entre os 10 grupos do $k$-means (sem usar rótulos) e os rótulos (de 0 a 1); (iii) \textbf{acurácia do $k$NN} ($k=5$, treinado nas representações do treino e avaliado no teste), que mede a separabilidade dos rótulos; e (iv) o número de \textbf{dimensões ativas} (variância da média $>0{,}01$).
+
+\section{Busca de Hiperparâmetros e Convergência}
+
+A Figura~\ref{fig:busca} mostra o custo de validação de cada uma das 32 configurações e a Figura~\ref{fig:curvas} as curvas de treino e validação dos melhores modelos da busca. A busca completa levou cerca de 88 minutos em CPU.
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae/busca_hiperparametros.png}{0.98}{Figura busca hiperparametros.png: custo de validacao de cada configuracao}
+\caption{Custo de validação por configuração (menor é melhor), para $d=2$ (esquerda) e $d=8$ (direita).}
+\label{fig:busca}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae/curvas_treino.png}{0.85}{Figura curvas treino.png: curvas de treino e validacao}
+\caption{Custo de treino e de validação por época dos melhores modelos da busca (linha tracejada: melhor época).}
+\label{fig:curvas}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Custo de validação médio por topologia (média sobre as taxas de aprendizado e os lotes).}
+\label{tab:topologia}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Latente} & \textbf{256} & \textbf{256-128} & \textbf{512-256} & \textbf{512-256-128} \\
+\midrule
+$d=2$ & 262,16 & 256,93 & 254,96 & \textbf{254,55} \\
+$d=8$ & 241,70 & 239,66 & \textbf{238,17} & 241,19 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Análise Crítica:}
+\begin{itemize}
+    \item \textbf{Topologia:} foi o fator que mais pesou (Tabela~\ref{tab:topologia}). Com $d=2$, a rede de uma só camada oculta foi a pior (média 262,2), e as três mais profundas ficaram entre 254,5 e 256,9. Com $d=8$, a melhor foi a \texttt{512-256} (238,2); a mais profunda (\texttt{512-256-128}, 241,2) ficou atrás dela. Hipótese (não testada): a rede mais profunda converge mais devagar e foi penalizada pelo limite de 40 épocas.
+    \item \textbf{Tamanho do lote e taxa de aprendizado:} o lote 128 superou o 256 em 7 de 8 pares (mesma topologia e taxa), nos dois espaços latentes; uma explicação plausível é o maior número de atualizações por época sob um orçamento fixo de épocas. A taxa de aprendizado teve efeito pequeno: as médias de $10^{-3}$ e $5\times10^{-4}$ diferem em menos de 1 ponto de custo.
+    \item \textbf{Sensibilidade geral:} o custo variou apenas $3{,}9\%$ ($d=2$: de 253,4 a 263,3) e $2{,}3\%$ ($d=8$: de 237,5 a 243,0) entre as 16 configurações de cada $d$. As três melhores configurações ficaram a menos de 1 ponto entre si ($d=2$: 253,38; 253,72; 254,20; $d=8$: 237,48; 237,66; 238,26), o que, com uma única semente, está no nível do ruído; a escolha entre elas é frágil.
+    \item \textbf{Sobreajuste e convergência:} as curvas de treino e validação ficam praticamente sobrepostas (Figura~\ref{fig:curvas}), sem sinal de sobreajuste. Por outro lado, a melhor época foi a 38 ($d=2$) e a 39 ($d=8$) de 40, isto é, o limite de épocas foi quase atingido e não foi possível afirmar a convergência, o que motivou o refinamento (Seção~3).
+\end{itemize}
+
+\section{Refinamento com Mais Épocas}
+
+A Tabela~\ref{tab:refino} compara os melhores modelos da busca (até 40 épocas) com os modelos retreinados com mais épocas. A coluna de épocas indica a melhor época e o total de épocas rodadas.
+
+\begin{table}[h]\centering
+\small
+\caption{Melhores modelos: busca (até 40 épocas) $\times$ refinamento (custos médios por imagem).}
+\label{tab:refino}
+\begin{tabularx}{\textwidth}{llcXXXX}
+\toprule
+\textbf{Etapa} & \textbf{Topologia} & \textbf{Épocas} & \textbf{Custo val.} & \textbf{Custo teste} & \textbf{Reconstr.} & \textbf{KL} \\
+\midrule
+\multicolumn{7}{l}{\textit{Latente $d=2$}} \\
+Busca (40 ép.)      & 512-256-128 & 38/40 & 253,38 & 254,93 & 248,22 & 6,71 \\
+Refinado            & 512-256-128 & 38/48 & 253,38 & 254,99 & 248,28 & 6,71 \\
+\midrule
+\multicolumn{7}{l}{\textit{Latente $d=8$}} \\
+Busca (40 ép.)      & 512-256 & 39/40 & 237,48 & 239,14 & 225,98 & 13,16 \\
+\textbf{Refinado}   & 512-256 & 88/98 & \textbf{236,20} & \textbf{237,87} & 224,86 & 13,01 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/curvas_treino.png}{0.85}{Figura curvas treino.png do refinamento}
+\caption{Curvas de treino e validação dos modelos refinados.}
+\label{fig:curvas_ref}
+\end{figure}
+
+\textbf{Análise Crítica do Refinamento:}
+\begin{itemize}
+    \item \textbf{$d=2$ já havia convergido:} o \textit{early stopping} disparou na época 48, dez épocas depois da melhor (38), que é a mesma da busca. O custo de validação é idêntico (253,38) e as métricas do espaço latente (Tabela~\ref{tab:latente}) também; ou seja, o modelo refinado é o mesmo da busca. A diferença de 0,06 no custo de teste (254,93 $\to$ 254,99) vem da amostragem aleatória de $\mathbf{z}$ no cálculo do custo, já que o KL (6,71) é idêntico. Depois da época 38, os custos de treino e de validação apenas oscilam em torno de 254 (Figura~\ref{fig:curvas_ref}).
+    \item \textbf{$d=8$ melhorou pouco:} o custo de validação caiu de 237,48 para 236,20 ($-1{,}28$; $-0{,}54\%$) e o de teste de 239,14 para 237,87 ($-0{,}53\%$), com a reconstrução indo de 225,98 para 224,86 e o KL de 13,16 para 13,01. A melhor época foi a 88 e o \textit{early stopping} disparou na 98, de modo que o treino convergiu pelo critério adotado. O custo refinado é menor que o de todas as 32 configurações da busca (o menor era 237,48).
+    \item \textbf{Sobreajuste:} no 8D, as curvas de treino e validação se afastam levemente ao longo das épocas (diferença de cerca de 1 a 2 pontos no final, por leitura visual da figura), mas o custo de validação não volta a subir de forma relevante, de modo que não há sobreajuste importante.
+    \item \textbf{Ressalva:} o ganho de 1,28 ponto no 8D é maior que a diferença entre as três melhores configurações da busca (menos de 1 ponto). Como apenas a vencedora foi refinada, não se sabe se outra configuração, treinada por mais épocas, a superaria.
+\end{itemize}
+
+\section{Espaço Latente e Qualidade Generativa}
+
+\subsection{Clusters, Separação de Rótulos e Variância Explicada}
+
+A Tabela~\ref{tab:latente} reúne as métricas calculadas no conjunto de teste, e as Figuras~\ref{fig:lat2d} e~\ref{fig:lat8d} mostram as representações coloridas pelos rótulos. As figuras e a análise abaixo são dos \textbf{modelos finais (refinados)}; a tabela inclui também os valores da busca, para comparação. As métricas do $d=2$ coincidem nas duas etapas, pois o modelo é o mesmo.
+
+\begin{table}[h]\centering
+\small
+\caption{Métricas do espaço latente no conjunto de teste. Acaso do $k$NN: 0,10.}
+\label{tab:latente}
+\begin{tabularx}{\textwidth}{llXXXX}
+\toprule
+\textbf{Etapa} & \textbf{Representação} & \textbf{Silhouette} & \textbf{NMI ($k$-means)} & \textbf{Acurácia $k$NN} & \textbf{Dim. ativas} \\
+\midrule
+Busca (40 ép.) & Latente 2D              & 0,121  & 0,563 & 0,713 & 2/2 \\
+Busca (40 ép.) & Latente 8D (completo)  & 0,067  & 0,526 & 0,834 & 7/8 \\
+Busca (40 ép.) & Latente 8D $\to$ PCA 2D & $-0{,}002$ & 0,456 & 0,479 & --- \\
+\midrule
+Refinado & Latente 2D              & 0,121 & 0,563 & 0,713 & 2/2 \\
+Refinado & Latente 8D (completo)   & 0,063 & 0,484 & 0,835 & 7/8 \\
+Refinado & Latente 8D $\to$ PCA 2D & $-0{,}031$ & 0,414 & 0,439 & --- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/latente_2d.png}{0.62}{Figura latente 2d.png: espaco latente 2D por rotulo}
+\caption{Espaço latente de 2 dimensões (conjunto de teste), colorido pelos rótulos.}
+\label{fig:lat2d}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/latente_8d_pca.png}{0.98}{Figura latente 8d pca.png: projecao PCA do latente 8D e variancia explicada}
+\caption{Projeção PCA do espaço latente de 8 dimensões (esquerda) e variância explicada por componente (direita).}
+\label{fig:lat8d}
+\end{figure}
+
+\textbf{Observações.}
+\begin{itemize}
+    \item \textbf{Espaço 2D:} os pontos se organizam em regiões por categoria, dispostas como ``pétalas'' ao redor da origem (efeito do termo KL, que aproxima o espaço de $\mathcal{N}(\mathbf{0},\mathbf{I})$). Os calçados (sandália, tênis, bota) ocupam a esquerda, vizinhos entre si; a calça fica no alto; a bolsa, embaixo; e as roupas de parte de cima (camiseta, camisa, pulôver, casaco) ficam à direita, muito sobrepostas. O vestido ocupa o centro, sobrepondo-se em parte à calça e à camiseta.
+    \item \textbf{Projeção PCA do 8D:} as classes aparecem mais misturadas que no espaço 2D (calçados sobrepostos entre si, calça e vestido sobrepostos, e camisa, pulôver e casaco sobrepostos), em linha com a queda da acurácia do $k$NN de 0,835 (8D completo) para 0,439 (PCA 2D).
+    \item \textbf{Variância explicada:} as duas primeiras componentes explicam apenas \textbf{33,8\%} da variância (17,8\% + 15,9\%); seis componentes são necessárias para chegar a 88,3\%, e sete somam $\approx100\%$. A oitava componente tem variância desprezível ($2\times10^{-5}$, ou 0,002\%), coerente com as 7 dimensões ativas (de 8): uma dimensão foi ignorada pelo modelo (\textit{posterior collapse}). A variância é distribuída de forma quase uniforme entre as sete componentes ativas (de 11,7\% a 17,8\%), como esperado quando o KL aproxima o espaço latente de uma gaussiana isotrópica. Na busca (40 épocas), as duas primeiras componentes somavam 34,8\%.
+\end{itemize}
+
+\subsection{Reconstrução e Geração de Imagens}
+
+A Figura~\ref{fig:recon} compara imagens originais com suas reconstruções, e a Figura~\ref{fig:gera} mostra imagens \emph{novas} geradas sorteando $\mathbf{z}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$. A Figura~\ref{fig:variedade} decodifica uma grade regular do espaço 2D.
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/reconstrucoes.png}{0.92}{Figura reconstrucoes.png: original e reconstrucoes 2D e 8D}
+\caption{Imagens de teste originais (topo) e reconstruções pelos VAEs de 2D e 8D.}
+\label{fig:recon}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/geracao.png}{0.98}{Figura geracao.png: amostras geradas}
+\caption{Imagens geradas por amostragem $\mathbf{z}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$ (VAE 2D à esquerda, 8D à direita).}
+\label{fig:gera}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\figarq{resultados_vae_refinado/variedade_2d.png}{0.55}{Figura variedade 2d.png: grade do espaco latente 2D}
+\caption{Imagens geradas varrendo uma grade de $[-3,3]^2$ no espaço latente 2D.}
+\label{fig:variedade}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{Reconstruções:} são borradas nos dois modelos (típico de VAEs), mas o de 8D preserva mais detalhes (por exemplo, a textura listrada do casaco aparece no 8D e quase desaparece no 2D); o logotipo da camiseta é perdido nos dois.
+    \item \textbf{Geração:} com $d=2$ as amostras são plausíveis, porém pouco variadas (muitas botas, bolsas e camisetas); com $d=8$ há maior variedade e detalhe, mas alguns exemplares saem distorcidos.
+    \item \textbf{Variedade 2D:} a transição entre peças é suave e organizada: botas embaixo à esquerda, tênis e sandálias no alto à esquerda, calças no alto, camisetas no alto à direita, blusas e casacos embaixo à direita e bolsas embaixo ao centro. Isso indica que o espaço latente é contínuo e semanticamente estruturado. Nas bordas da grade (fora da região com dados), as imagens se repetem.
+\end{itemize}
+
+\section{Discussão e Lições Aprendidas}
+\label{sec:disc}
+
+\begin{itemize}
+    \item \textbf{Espaço latente de 2 $\times$ 8 dimensões:} nos modelos finais, o VAE de 8 dimensões atingiu custo de teste $6{,}7\%$ menor (237,87 contra 254,99), por reconstruir melhor (reconstrução $-9{,}4\%$: 248,3 $\to$ 224,9), ao custo de um KL quase duas vezes maior (6,7 $\to$ 13,0): com mais dimensões, o modelo guarda mais informação sobre a imagem. As buscas foram independentes, mas o 8D tem mais capacidade, então o resultado é esperado. O 2D tem a vantagem de ser diretamente visualizável e de permitir a varredura da variedade (Figura~\ref{fig:variedade}).
+    \item \textbf{Há formação de clusters?} \textit{Parcialmente.} Não há clusters limpos e isolados, mas regiões por \textbf{macrocategoria}: calçados, roupas de parte de cima, calças, vestidos e bolsas (Figura~\ref{fig:lat2d}). O NMI do $k$-means é moderado (0,563 no 2D; 0,484 no 8D) e o silhouette é baixo (0,121 e 0,063), o que confirma que os grupos não são bem separados.
+    \item \textbf{Há separação dos rótulos?} \textit{Sim, mas parcial.} A acurácia do $k$NN é muito superior ao acaso (0,10): 0,713 no 2D e 0,835 no 8D. A separação é boa \emph{entre} categorias (calçados, calças, bolsas e roupas de cima) e fraca \emph{dentro} de categorias semelhantes: camisa, pulôver e casaco se sobrepõem quase por completo, e a camiseta se mistura à camisa. O 8D separa melhor que o 2D (informação extra), e a projeção PCA do 8D \textbf{subestima} essa separação (0,439). O silhouette é menor no 8D que no 2D enquanto o $k$NN é maior: as duas métricas medem coisas diferentes (compacidade global dos grupos \emph{versus} vizinhança local), e por isso ambas são reportadas.
+    \item \textbf{Quanto da variância a projeção ilustra?} A projeção 2D (PCA) do espaço de 8 dimensões ilustra apenas \textbf{33,8\%} da variância, de modo que a maior parte da informação do espaço latente fica fora do gráfico. A variância está bem distribuída entre as componentes (a primeira explica só 17,8\%), o que explica por que a projeção perde muita estrutura de classes.
+    \item \textbf{Dimensão ignorada:} uma das 8 dimensões latentes foi desativada pelo modelo (variância $\approx0$), o que sugere que 7 dimensões bastam para esta tarefa com esta arquitetura.
+    \item \textbf{Hiperparâmetros:} o resultado é pouco sensível à escolha (variação de 2 a 4\% no custo), sendo a topologia o fator mais relevante, seguida do tamanho do lote; a taxa de aprendizado teve efeito pequeno.
+    \item \textbf{Efeito do refinamento:} treinar por mais épocas não alterou o $d=2$ (já havia convergido na época 38) e reduziu em apenas $0{,}5\%$ o custo do $d=8$. Esse ganho de reconstrução \textbf{não} se traduziu em melhor separação dos rótulos: no 8D, a acurácia do $k$NN ficou praticamente igual (0,834 $\to$ 0,835), enquanto o NMI (0,526 $\to$ 0,484), o silhouette (0,067 $\to$ 0,063), o $k$NN na projeção PCA (0,479 $\to$ 0,439) e a variância das duas primeiras componentes (34,8\% $\to$ 33,8\%) diminuíram levemente. Faz sentido, pois o VAE é treinado sem usar rótulos: um custo menor significa melhor reconstrução, e não necessariamente classes mais separadas. Como hipótese (não testada), mais treino distribui a informação de forma mais uniforme entre as dimensões, enfraquecendo as direções principais. As diferenças em NMI e silhouette são pequenas e vêm de uma única execução do $k$-means, devendo ser lidas com cautela. De qualquer forma, as conclusões qualitativas (agrupamento parcial por macrocategoria, 8D melhor que 2D, projeção PCA pouco informativa) não mudam.
+    \item \textbf{Limitações:}
+    \begin{itemize}
+        \item \textit{Uma semente por configuração} (42): diferenças pequenas, como entre as três melhores configurações da busca, podem ser ruído.
+        \item \textit{Refinamento só da vencedora:} apenas a melhor configuração de cada $d$ foi retreinada por mais épocas; a ordem entre as configurações poderia mudar se todas fossem treinadas até a convergência.
+        \item \textit{Critério de escolha:} o modelo foi escolhido apenas pelo custo de validação; a qualidade do espaço latente (clusters, separação) foi analisada depois e não influenciou a escolha.
+        \item \textit{Arquitetura e custo:} foram usadas apenas MLPs, com $\beta=1$ fixo e entropia cruzada binária aplicada a pixels em tons de cinza (prática padrão, mas não exatamente uma verossimilhança de dados binários); o borrão nas reconstruções é uma limitação conhecida desse formato.
+        \item \textit{PCA é linear:} a projeção pode não capturar estruturas não lineares do espaço latente.
+        \item \textit{Métricas do espaço latente:} o silhouette foi calculado numa amostra de 5\,000 pontos do teste, e o $k$-means foi executado uma vez (semente fixa).
+    \end{itemize}
+\end{itemize}
+
+\section{Conclusão}
+
+O VAE de 8 dimensões (\texttt{512-256}, refinado) obteve o menor custo (237,87 no teste, contra 254,99 do VAE de 2 dimensões) e melhor separabilidade dos rótulos ($k$NN 0,835 contra 0,713), enquanto o de 2 dimensões permite visualizar diretamente o espaço latente e gerar uma variedade contínua e organizada. Em ambos, o espaço latente forma agrupamentos parciais por macrocategoria (calçados, calças, bolsas e roupas de parte de cima), com forte sobreposição entre camisa, pulôver e casaco, e a projeção PCA do espaço de 8 dimensões ilustra só 33,8\% da variância. Treinar por mais épocas não mudou o modelo de 2 dimensões e reduziu em apenas 0,5\% o custo do de 8, sem melhorar a separação dos rótulos.
+
+\end{document}
