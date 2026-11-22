@@ -1,0 +1,2 @@
+acc_top1,acc_top2,dif,ic_lo,ic_hi,so_top1_acerta,so_top2_acerta,p_mcnemar
+0.7716,0.74,0.03159999999999996,0.02269750000000005,0.0403,1128,812,7.65134918561617e-13
